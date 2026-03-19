@@ -17,7 +17,7 @@ Q-commerce riders working for platforms such as Zepto, Blinkit, and similar serv
 Common disruption scenarios include:
 
 - Heavy rain or waterlogging during the monsoon season, causing order delays or zone shutdowns.
-- Local curfews, civic restrictions, traffic blocks, or market closures that instantly reduce order flow.
+- Local curfews, civic restrictions, or market closures that instantly reduce order flow.
 - Platform outages or service interruptions that temporarily prevent riders from receiving or completing orders.
 
 A rider typically works 7 to 10 hours per day, 6 days per week. Losing 2 to 3 peak hours in a single evening can result in meaningful income loss, often without any financial safety net.
@@ -110,7 +110,7 @@ Example for a rider in Bengaluru:
 - Risk score: A value in the range `[0,1]` mapped into a risk factor range of approximately `[0.8,1.5]`
 - Coverage factor: Selected protection rate divided by reference rate
 - Zone risk: Historical weather, closure, and disruption frequency for a rider's service zone
-- Forecast risk: Predicted rain, heat, or disruption probability in the next 7 days
+- Forecast risk: Predicted rain, or disruption probability in the next 7 days
 - Exposure: Declared weekly work pattern, such as 8 hours per day for 6 days
 
 ## Parametric Trigger Design
@@ -250,9 +250,11 @@ quickshield/
 
 ## Adversarial Defense and Anti-Spoofing Strategy
 
-If a user claims for the protection by using advanced GPS-spoofing applications to fake their locations. While resting safely at home, they are tricking the system into believing they are trapped in a severe, red-alert weather zone, triggering mass false payouts and instantly draining the liquidity pool.
+If a user attempts to claim protection by using advanced GPS-spoofing applications to fake their location, they could trick the system into believing they were trapped in a severe, red-alert weather zone while actually resting safely at home. This could trigger false payouts at scale and rapidly drain the liquidity pool.
 
-In this situation ....
+To defend against this, QuickShield should verify that device GPS, platform partner logs such as pickup and drop zones, and the rider's registered home and operating area all fall within the impacted micro-zones during the disruption window. Any inconsistency, such as a location far outside the affected area or activity in a different city, should immediately raise a fraud flag for manual review or automated rejection.
+
+If the rider's operating area is significantly farther away from the impacted micro-zone, that should also raise a fraud flag.
 
 ## Why This Product Matters
 
