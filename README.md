@@ -316,3 +316,7 @@ Gig workers face income volatility from events they cannot control. Traditional 
 - Grounded in verifiable external data
 
 The long-term goal is to create a reliable financial safety net for high-frequency, low-margin workers who are currently underserved by mainstream insurance products.
+
+## One-Line Summary
+
+AI-powered parametric insurance that automatically compensates gig workers for hourly income loss using real-time disruption triggers.
