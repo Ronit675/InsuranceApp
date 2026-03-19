@@ -1,200 +1,266 @@
-# Insurance App
+# QuickShield
 
-- **Persona** : An AI-enabled parametric insurance platform that safeguards gig workers against income loss caused by external disruptions such as extreme weather or environmental conditions.
-- **Team** : 3Three
-- **Github** : 
-- **Video Link** : 
+- **Team**: 3Three
+- **Github**:
+- **Video Link**:
 
-## 🎯 Problem & Persona
+## Overview
 
-Q‑commerce riders (Zepto/Blinkit etc.) operate in tight time windows, high-speed, hyperlocal zones.
-Their weekly income drops sharply when external disruptions hit:
+QuickShield is an AI-enabled parametric insurance platform designed to protect gig workers from income loss caused by external disruptions such as heavy rain, app outages, and local zone closures.
 
-- Sudden Heavy rain or waterlogging(monsoon: June-Sep) -> orders paused in specific micro-zones.
-- Unplanned curfews/strikes or local market/zone closures → instant “dark” zones
+The product is built for q-commerce riders who depend on predictable peak-hour earnings. Instead of traditional claims processing, the platform uses verified external signals to detect disruption events and trigger proportional payouts automatically.
 
-*Current Reality* : A typical rider works 7–10 hours/day, 6 days/week.
-Losing 2–3 peak hours can mean ₹400–₹700 lost in a single evening, with no safety net
+## Problem Statement
 
-*Our Solution* : Parametric insurance covering hourly lost income from these external triggers, with weekly pricing perfectly to their cashflow cycle.
+Q-commerce riders working for platforms such as Zepto, Blinkit, and similar services operate in narrow delivery windows and highly localized service zones. Their weekly income can fall sharply when external events interrupt deliveries.
 
-## 🧩 Core Idea
-  - Scope: Protect only loss of income from external disruptions (no health, accident,  vehicle repair, or medical coverage).
+Common disruption scenarios include:
 
-  - Model: Weekly premium aligned to rider payout cycle, with dynamic pricing based on zone risk and forecasted conditions.
+- Heavy rain or waterlogging during the monsoon season, causing order delays or zone shutdowns.
+- Local curfews, civic restrictions, traffic blocks, or market closures that instantly reduce order flow.
+- Platform outages or service interruptions that temporarily prevent riders from receiving or completing orders.
 
-  - Mechanism: Parametric triggers (weather, curfew, app outage) auto‑initiate claims; payouts are proportional to disrupted time slots, not whole days. 
+A rider typically works 7 to 10 hours per day, 6 days per week. Losing 2 to 3 peak hours in a single evening can result in meaningful income loss, often without any financial safety net.
+
+## Solution
+
+QuickShield provides parametric income protection for gig workers.
+
+- Coverage is limited to income loss caused by verified external disruptions.
+- Premiums are aligned to weekly payout cycles to match rider cash flow.
+- Claims are triggered automatically using external data, not manual claim filing.
+- Payouts are proportional to affected time slots rather than being based on full-day loss assumptions.
+
+## Core Product Principles
+
+- Scope: Covers income interruption from external disruptions only. It does not include health, accident, vehicle repair, or medical insurance.
+- Model: Uses weekly policy pricing based on expected risk, selected coverage, and rider earnings patterns.
+- Mechanism: Detects trigger events through weather, platform outage, civic, and platform activity data, then initiates automated claim logic.
 
 ## Tech Stack
 
-| Layer         | Choice                                            |
-| ------------- | ------------------------------------------------- |
-| Mobile App    | React Native + TypeScript                         |
-| Backend       | NestJS (Node.js + TypeScript)                     |
-| ORM / DB      | Prisma + PostgreSQL                               |
-| Payments      | Razorpay / Stripe / UPI sandbox (instant payout)  |
-| External Data | Weather + AQI APIs, mock Q‑commerce platform APIs |
+| Layer | Choice |
+| --- | --- |
+| Mobile App | React Native + TypeScript |
+| Backend | NestJS (Node.js + TypeScript) |
+| ORM / Database | Prisma + PostgreSQL |
+| Payments | Razorpay / Stripe / UPI sandbox |
+| External Data | Weather APIs, app outage signals, mock q-commerce platform APIs |
 
 ## Solution Architecture
 
-React Native Mobile App  ↔  NestJS + Node.js REST APIs
-                               ↓
-                    PostgreSQL (Prisma ORM)
-                               ↓
-   Weather & AQI APIs · Mock Platform APIs · Payment Gateway Sandbox
+```text
+React Native Mobile App <-> NestJS REST API
+                               |
+                               v
+                    PostgreSQL via Prisma ORM
+                               |
+                               v
+        Weather APIs | App Outage Signals | Mock Platform APIs | Payment Sandbox
+```
 
+## Coverage Selection and Premium Model
 
-## Smart Coverage Selection + Weekly Premium Model
+### 1. Earnings-Based Coverage Recommendation
 
-1. *Auto-Calculate Average Daily Earnings from Platform Data*
-   We pull last 4-8 weeks earnings from zepto/Blinkit APIs: 
-   "Based on your Zepto earnings: Average daily income = ₹850"
-   "Recommended protection: ₹750/day (90% of your average)"
+The platform estimates average rider earnings using the last 4 to 8 weeks of platform income data.
 
-2. *Hybrid Selection: Auto Suggest + User Control*
-   Default: Auto protect 80-90% of their verified average
-   Slider: User can adjust within safe limits (60-120% of average)
+Example:
 
-   Rider sees:
-   "Typical daily earnings: ₹850 (Zepto data)"
-   "🔵 Recommended: Protect ₹750/day"  ← Pre-filled slider
-   "Slider range: ₹510–₹1,020 (60–120% of average)"
+- Average daily income: Rs 850
+- Recommended protection: Rs 750 per day
 
-   Why limits?
-   • Minimum 60%: Product stays useful
-   • Maximum 120%: Prevents over-insurance/fraud
+The default recommendation protects roughly 80 to 90 percent of verified average earnings.
 
-3. *Dynamic Weekly Premium Formula*
-   Simple, dynamic pricing calculated at policy creation + weekly renewal:
+### 2. Rider-Controlled Coverage Range
 
-   Weekly Premium = Base Premium x Risk Factor x Coverage Factor
+The rider can adjust the recommended coverage amount within predefined guardrails.
 
-   *Example for Zepto Bengaluru rider*
-   Base Rate: ₹35/week (reference ₹600/day coverage)
-   Coverage Factor: 750/600 = 1.25
-   Risk Factor: 1.2 (high rain forecast this week)
-   → Weekly Premium = ₹35 × 1.25 × 1.2 = ₹52.50 ≈ ₹53
+- Minimum coverage: 60 percent of verified average income
+- Maximum coverage: 120 percent of verified average income
 
-   - Risk factor will be calculated with the help of Risk Score for the upcoming week.
-                Risk Score∈[0,1]→Risk Factor∈[0.8,1.5]
+These limits are designed to:
 
-   - Coverage Factor = Choosen protection rate / refernce rate
-   For eg. for ₹800/day vs a reference ₹600/day = 800/600 ≈ 1.33.
+- Keep the product meaningful at the lower bound
+- Reduce over-insurance and fraud exposure at the upper bound
 
-   - Risk Score inputs :
-     - Zone Risk : Historical rain/curfew data for their pincode cluster
-     - Forecast Risk : next 7 days of rain/extreme heat, especially in peak delivery slots.
-     - Exposure: Their declared weekly hours (8 hrs/day × 6 days)
+Example display:
 
-## Parametric Triggers
-We mode diruptions at time-slot level because Q-commerce is very time sensitive.
+- Typical daily earnings: Rs 850
+- Recommended protection: Rs 750 per day
+- Allowed slider range: Rs 510 to Rs 1,020
 
-4 Daily slots (Q-commerce peak sensitivity):
+### 3. Dynamic Weekly Premium Formula
 
-| Slot | Time       | Weight                 |
-| ---- | ---------- | ---------------------- |
-| S1   | 6–10 AM    | Morning rush           |
-| S2   | 10 AM–4 PM | Off-peak               |
-| S3   | 4–8 PM     | Evening peak (highest) |
-| S4   | 8 PM–12 AM | Late night             |
+Weekly premium is determined at policy creation and renewal using the formula below:
 
-3 Automated triggers 
+```text
+Weekly Premium = Base Premium x Risk Factor x Coverage Factor
+```
 
-| Trigger      | Source                 | Threshold          | Payout               |
-| ------------ | ---------------------- | ------------------ | -------------------- |
-| Heavy Rain   | OpenWeatherMap         | >25mm/hr in zone   | Affected slots       |
-| Severe AQI   | AQI API                | AQI > 300 (3+ hrs) | Platform outdoor ban |
-| Zone Closure | Mock civic/traffic API | Orders drop >70%   | Dark zone            |
+Example for a rider in Bengaluru:
 
-Partial payout example: S3 (4–8 PM) rain 6–7 PM → 1 disrupted hour → ₹125 payout (not full day).
+- Base premium: Rs 35 per week at Rs 600 per day reference coverage
+- Coverage factor: 750 / 600 = 1.25
+- Risk factor: 1.2 for a high-risk weather week
+- Weekly premium: Rs 35 x 1.25 x 1.2 = Rs 52.50, rounded to Rs 53
 
-## AI/ML Integration Plan
-- Phase 2: Dynamic Pricing ML
-  XGBoost: zone_history + weather_forecast + slot_pattern → Expected loss next week → Risk Factor
+### Premium Inputs
 
-- Phase 3: Fraud Detection 
-  1. Anomaly: Rider claims S3 disruption when zone had normal orders
-  2. GPS: Must be in affected micro-zone during trigger window
-  3. Cohort: Claims >2σ above peers flagged
+- Risk score: A value in the range `[0,1]` mapped into a risk factor range of approximately `[0.8,1.5]`
+- Coverage factor: Selected protection rate divided by reference rate
+- Zone risk: Historical weather, closure, and disruption frequency for a rider's service zone
+- Forecast risk: Predicted rain, heat, or disruption probability in the next 7 days
+- Exposure: Declared weekly work pattern, such as 8 hours per day for 6 days
 
+## Parametric Trigger Design
 
-## 📱 Key User Flows
-1. Onboarding (90 seconds)
-   - "Connect Zepto" → Pull earnings data
-   - "Your avg: ₹850/day. Recommended: ₹750 protection" ✅ Pre-filled
-   - Adjust slider (₹510–₹1,020 range)
-   - "Weekly premium: ₹53" → UPI payment
+The platform models disruptions at the time-slot level because q-commerce income is highly sensitive to peak delivery windows.
 
-2. Zero touch claims 
-   6:30 PM: Rain trigger → S3 partially disrupted (1 hr)
-   System: Auto-claim → GPS validates → ₹125 instant payout
-   Notification: "Rain protected: ₹125 in your UPI"
+### Daily Time Slots
 
-3. Weekly Renewal 
-   "Next week: ₹5,400 max protection, ₹49 premium (low rain risk)"
-   Auto-renew toggle
+| Slot | Time | Sensitivity |
+| --- | --- | --- |
+| S1 | 6 AM to 10 AM | Morning rush |
+| S2 | 10 AM to 4 PM | Off-peak |
+| S3 | 4 PM to 8 PM | Evening peak |
+| S4 | 8 PM to 12 AM | Late night |
 
-## 🛠️ Implementation Plan
+### Automated Triggers
 
-- Phase 1: Foundation (✅ COMPLETE)
-Week 1-2 (Mar 4-20)
-✅ README with full strategy + justification
-✅ Git repo with readme file
-✅ 2-min demo video (screen recording)
+| Trigger | Data Source | Threshold | Payout Logic |
+| --- | --- | --- | --- |
+| Heavy Rain | OpenWeatherMap | Greater than 25 mm/hr in zone | Affected slots |
+| App Outage | Platform status or order-flow signal | Order flow drops to zero during outage window | Affected slots |
+| Zone Closure | Mock civic or traffic API | Orders drop by more than 70 percent | Dark-zone payout |
 
-- Phase 2: Core Product (Mar 21 - Apr 4)
-| Week   | Deliverables                   | Tech Implementation                                                           |
-| ------ | ------------------------------ | ----------------------------------------------------------------------------- |
-| Week 3 | Registration + Policy Creation | - React Native: Onboarding screens- NestJS: /auth/register,                   |
-|        |                                |   /profile/zepto-connect- Prisma: User, Profile tables                        |
-| Week 4 | Dynamic Premium + Claims       | - Premium calculator endpoint /policy/calculate- 3 trigger services           |
-|        |                                |   (weather.service.ts, aqi.service.ts)- Basic claim flow /claims/auto-trigger |
+Example:
 
-Phase 2 Demo: 2-min video showing full onboarding → premium calc → simulated rain trigger → claim notification.
+If S3 is disrupted from 6 PM to 7 PM due to heavy rain, the rider receives a partial payout for 1 disrupted hour rather than a full-day payout.
 
-- Phase 3: Production Ready (Apr 5 - 17)
-| Feature         | Backend                             | Frontend                 | APIs                    |
-| --------------- | ----------------------------------- | ------------------------ | ----------------------- |
-| Fraud Detection | fraud.service.ts (Isolation Forest) | GPS validation screen    | Location during trigger |
-| Instant Payouts | Razorpay webhooks                   | UPI deep links           | /payments/payout        |
-| Dashboards      | Admin endpoints                     | Rider dashboard screens  | Charts, metrics         |
-| ML Pricing      | XGBoost model (Python → API)        | Live risk factor display | /ml/risk-score          |
+## AI and ML Roadmap
 
-Phase 3 Demo: 5-min video with live simulated rainstorm → auto-claim → fraud check → instant UPI payout.
+### Dynamic Pricing
 
-*File Structure*
+Phase 2 introduces machine learning for more accurate pricing.
 
+- Model candidate: XGBoost
+- Inputs: zone history, weather forecast, and slot-level disruption patterns
+- Output: expected loss for the next policy week, used to refine the risk factor
+
+### Fraud Detection
+
+Phase 3 introduces automated fraud screening.
+
+- Anomaly detection for claim patterns that diverge significantly from peer behavior
+- GPS validation to confirm rider presence in the affected micro-zone
+- Cohort-based risk checks for abnormal frequency or payout size
+
+## Key User Flows
+
+### 1. Onboarding
+
+- Rider connects a delivery platform account
+- The system pulls recent earnings data
+- Recommended daily protection is pre-filled
+- The rider adjusts coverage within allowed limits
+- Weekly premium is calculated and paid through UPI
+
+### 2. Zero-Touch Claims
+
+- A disruption event is detected automatically
+- The claim engine validates trigger conditions
+- GPS and event data confirm rider eligibility
+- A proportional payout is initiated without manual claim submission
+
+### 3. Weekly Renewal
+
+- The rider receives an updated protection and premium estimate for the next week
+- Forecasted risk affects the renewal price
+- Auto-renew can be enabled for continuous coverage
+
+## Roadmap
+
+### Phase 1: Foundation
+
+Completed deliverables:
+
+- Product strategy and concept definition
+- Repository setup and documentation
+- Initial demo planning
+
+### Phase 2: Core Product
+
+Planned deliverables:
+
+- Registration and authentication
+- Earnings import and rider profile creation
+- Policy creation and premium calculation
+- Trigger detection services
+- Basic automated claims flow
+
+### Phase 3: Production Readiness
+
+Planned deliverables:
+
+- Fraud detection services
+- Instant payout workflows
+- Admin and rider dashboards
+- ML-assisted pricing refinement
+
+## Target Project Structure
+
+The structure below represents the intended implementation layout for the full product:
+
+```text
 quickshield/
-├── backend/                    # NestJS API
+├── backend/
 │   ├── src/
-│   │   ├── auth/             # JWT login/register
-│   │   ├── profile/          # Zepto earnings import
-│   │   ├── policy/           # Weekly premium calc
-│   │   ├── triggers/         # Weather/AQI services
-│   │   ├── claims/           # Parametric engine
+│   │   ├── auth/
+│   │   ├── profile/
+│   │   ├── policy/
+│   │   ├── triggers/
+│   │   ├── claims/
 │   │   └── prisma/
-│   │       └── schema.prisma # User, PolicyWeek, Claim
-├── mobile/                    # React Native
+│   │       └── schema.prisma
+├── mobile/
 │   ├── src/
-│   │   ├── screens/          # Onboarding, Dashboard
-│   │   ├── services/         # API client, push notifications
-│   │   └── components/       # Coverage slider, slot picker
-├── docs/                      # Wireframes, API docs
-└── README.md                  # This file
+│   │   ├── screens/
+│   │   ├── services/
+│   │   └── components/
+├── docs/
+└── README.md
+```
 
+## Success Metrics
 
-## Success Metrices (For Dashboard)
-Rider App: 
- - "This week: ₹1,050 protected (7 disrupted hours)."
- - "Active coverage: ₹150/hr, max 6 hours/day."
- - Timeline of disruptions (rain, curfew, outage).
+### Rider App
 
-Admin Portal (later phase):
- - Loss ratio by zone, trigger type, rider segment.
- - Heatmap of disruptions frequency across city.
- - Fraud/anamoly alerts.
+- Weekly income protected
+- Number of disrupted hours covered
+- Active protection rate and daily cap
+- Timeline of rain, app outage, and closure events
 
-## Adversarial Defense & Anti-Spoofing Strategy
+### Admin Dashboard
+
+- Loss ratio by zone
+- Trigger type distribution
+- Rider segment performance
+- Fraud and anomaly alerts
+
+## Adversarial Defense and Anti-Spoofing Strategy
+
 If a user claims for the protection by using advanced GPS-spoofing applications to fake their locations. While resting safely at home, they are tricking the system into believing they are trapped in a severe, red-alert weather zone, triggering mass false payouts and instantly draining the liquidity pool.
 
-In this situation 
+In this situation ....
+
+## Why This Product Matters
+
+Gig workers face income volatility from events they cannot control. Traditional insurance models are poorly aligned with short-term, hourly income interruptions. QuickShield addresses that gap with a product that is:
+
+- Fast to activate
+- Easy to price weekly
+- Automated in claims handling
+- Grounded in verifiable external data
+
+The long-term goal is to create a reliable financial safety net for high-frequency, low-margin workers who are currently underserved by mainstream insurance products.
