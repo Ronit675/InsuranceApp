@@ -1,4 +1,4 @@
-# Insurance App
+# QuickShield - Income Protection for Q‑Commerce Delivery Partners
 
 - **Persona** : An AI-enabled parametric insurance platform that safeguards gig workers against income loss caused by external disruptions such as extreme weather or environmental conditions.
 - **Team** : 3Three
@@ -11,7 +11,8 @@ Q‑commerce riders (Zepto/Blinkit etc.) operate in tight time windows, high-spe
 Their weekly income drops sharply when external disruptions hit:
 
 - Sudden Heavy rain or waterlogging(monsoon: June-Sep) -> orders paused in specific micro-zones.
-- Unplanned curfews/strikes or local market/zone closures → instant “dark” zones
+- Unplanned curfews/strikes → instant “dark” zones
+- App Failure or maintainance
 
 *Current Reality* : A typical rider works 7–10 hours/day, 6 days/week.
 Losing 2–3 peak hours can mean ₹400–₹700 lost in a single evening, with no safety net
@@ -19,21 +20,21 @@ Losing 2–3 peak hours can mean ₹400–₹700 lost in a single evening, with 
 *Our Solution* : Parametric insurance covering hourly lost income from these external triggers, with weekly pricing perfectly to their cashflow cycle.
 
 ## 🧩 Core Idea
-  - Scope: Protect only loss of income from external disruptions (no health, accident,  vehicle repair, or medical coverage).
+- Scope: Protect only loss of income from external disruptions (no health, accident,  vehicle repair, or medical coverage).
 
-  - Model: Weekly premium aligned to rider payout cycle, with dynamic pricing based on zone risk and forecasted conditions.
+- Model: Weekly premium aligned to rider payout cycle, with dynamic pricing based on zone risk and forecasted conditions.
 
-  - Mechanism: Parametric triggers (weather, curfew, app outage) auto‑initiate claims; payouts are proportional to disrupted time slots, not whole days. 
+- Mechanism: Parametric triggers (weather, curfew, app outage) auto‑initiate claims; payouts are proportional to disrupted time slots, not whole days. 
 
 ## Tech Stack
 
-| Layer         | Choice                                            |
-| ------------- | ------------------------------------------------- |
-| Mobile App    | React Native + TypeScript                         |
-| Backend       | NestJS (Node.js + TypeScript)                     |
-| ORM / DB      | Prisma + PostgreSQL                               |
-| Payments      | Razorpay / Stripe / UPI sandbox (instant payout)  |
-| External Data | Weather + AQI APIs, mock Q‑commerce platform APIs |
+| Layer         | Choice                                                    |
+| ------------- | ----------------------------------------------------------|
+| Mobile App    | React Native + TypeScript                                 |
+| Backend       | NestJS (Node.js + TypeScript)                             |
+| ORM / DB      | Prisma + PostgreSQL                                       |
+| Payments      | Razorpay / Stripe / UPI sandbox (instant payout)          |
+| External Data | Weather APIs, Traffic APIs, mock Q‑commerce platform APIs |
 
 ## Solution Architecture
 
@@ -41,7 +42,7 @@ React Native Mobile App  ↔  NestJS + Node.js REST APIs
                                ↓
                     PostgreSQL (Prisma ORM)
                                ↓
-   Weather & AQI APIs · Mock Platform APIs · Payment Gateway Sandbox
+   Weather & Traffic APIs · Mock Platform APIs · Payment Gateway Sandbox
 
 
 ## Smart Coverage Selection + Weekly Premium Model
@@ -65,26 +66,45 @@ React Native Mobile App  ↔  NestJS + Node.js REST APIs
    • Maximum 120%: Prevents over-insurance/fraud
 
 3. *Dynamic Weekly Premium Formula*
-   Simple, dynamic pricing calculated at policy creation + weekly renewal:
+  Simple, dynamic pricing calculated at policy creation + weekly renewal:
 
-   Weekly Premium = Base Premium x Risk Factor x Coverage Factor
+  Weekly Premium = Base Premium x Risk Factor x Coverage Factor
 
-   *Example for Zepto Bengaluru rider*
+  *Example for Zepto Bengaluru rider*
    Base Rate: ₹35/week (reference ₹600/day coverage)
    Coverage Factor: 750/600 = 1.25
    Risk Factor: 1.2 (high rain forecast this week)
    → Weekly Premium = ₹35 × 1.25 × 1.2 = ₹52.50 ≈ ₹53
 
    - Risk factor will be calculated with the help of Risk Score for the upcoming week.
-                Risk Score∈[0,1]→Risk Factor∈[0.8,1.5]
+                Risk Score∈[0,1] → Risk Factor ∈ [0.8,1.5]
 
-   - Coverage Factor = Choosen protection rate / refernce rate
+   - Coverage Factor = Choosen protection rate / reference rate
    For eg. for ₹800/day vs a reference ₹600/day = 800/600 ≈ 1.33.
 
    - Risk Score inputs :
      - Zone Risk : Historical rain/curfew data for their pincode cluster
      - Forecast Risk : next 7 days of rain/extreme heat, especially in peak delivery slots.
      - Exposure: Their declared weekly hours (8 hrs/day × 6 days)
+
+  For the App Crash:
+  claim_amount = policy.hourly_protection × disrupted_hours
+
+  Run Fraud Cheeck: 
+    fraud_score = fraud_engine.compute(claim)
+      IF fraud_score > 0.6:
+        manual_review()
+      ELSE:
+        approve_auto()
+
+  Scenario: Blinkit outage during evening peak
+  ├── Outage detected: 6:30–8:00 PM (1.5 hrs) ✓
+  ├── Rider status: Available in S3 slot (4–8 PM) ✓
+  ├── Slot overlap: 1.5 hrs ✓
+  ├── Hourly coverage: ₹150/hr ✓
+  ├── Fraud score: 0.12 (genuine) ✓
+  └── Payout: ₹150 × 1.5 = ₹225 💰
+
 
 ## Parametric Triggers
 We mode diruptions at time-slot level because Q-commerce is very time sensitive.
@@ -100,11 +120,11 @@ We mode diruptions at time-slot level because Q-commerce is very time sensitive.
 
 3 Automated triggers 
 
-| Trigger      | Source                 | Threshold          | Payout               |
-| ------------ | ---------------------- | ------------------ | -------------------- |
-| Heavy Rain   | OpenWeatherMap         | >25mm/hr in zone   | Affected slots       |
-| Severe AQI   | AQI API                | AQI > 300 (3+ hrs) | Platform outdoor ban |
-| Zone Closure | Mock civic/traffic API | Orders drop >70%   | Dark zone            |
+| Trigger      | Source                 | Threshold              | Payout               |
+| ------------ | ---------------------- | ---------------------- | -------------------- |
+| Heavy Rain   | OpenWeatherMap         | >25mm/hr in zone       | Affected slots       |
+| App Failure  | Timeout Errors         | order_volume_drop >70% | Affected slots       |
+| Zone Closure | Mock civic/traffic API | Orders drop >70%       | Dark zone            |
 
 Partial payout example: S3 (4–8 PM) rain 6–7 PM → 1 disrupted hour → ₹125 payout (not full day).
 
@@ -115,7 +135,7 @@ Partial payout example: S3 (4–8 PM) rain 6–7 PM → 1 disrupted hour → ₹
 - Phase 3: Fraud Detection 
   1. Anomaly: Rider claims S3 disruption when zone had normal orders
   2. GPS: Must be in affected micro-zone during trigger window
-  3. Cohort: Claims >2σ above peers flagged
+  3. Cohort: Claims > 2σ above peers flagged
 
 
 ## 📱 Key User Flows
@@ -143,12 +163,12 @@ Week 1-2 (Mar 4-20)
 ✅ 2-min demo video (screen recording)
 
 - Phase 2: Core Product (Mar 21 - Apr 4)
-| Week   | Deliverables                   | Tech Implementation                                                           |
-| ------ | ------------------------------ | ----------------------------------------------------------------------------- |
-| Week 3 | Registration + Policy Creation | - React Native: Onboarding screens- NestJS: /auth/register,                   |
-|        |                                |   /profile/zepto-connect- Prisma: User, Profile tables                        |
-| Week 4 | Dynamic Premium + Claims       | - Premium calculator endpoint /policy/calculate- 3 trigger services           |
-|        |                                |   (weather.service.ts, aqi.service.ts)- Basic claim flow /claims/auto-trigger |
+| Week   | Deliverables                   | Tech Implementation                                                               |
+| ------ | ------------------------------ | --------------------------------------------------------------------------------- |
+| Week 3 | Registration + Policy Creation | - React Native: Onboarding screens- NestJS: /auth/register,                       |
+|        |                                |   /profile/zepto-connect- Prisma: User, Profile tables                            |
+| Week 4 | Dynamic Premium + Claims       | - Premium calculator endpoint /policy/calculate- 3 trigger services               |
+|        |                                |   (weather.service.ts, traffic.service.ts)- Basic claim flow /claims/auto-trigger |
 
 Phase 2 Demo: 2-min video showing full onboarding → premium calc → simulated rain trigger → claim notification.
 
