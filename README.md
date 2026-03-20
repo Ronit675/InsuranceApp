@@ -300,11 +300,54 @@ quickshield/
 
 ## Adversarial Defense and Anti-Spoofing Strategy
 
-If a user attempts to claim protection by using advanced GPS-spoofing applications to fake their location, they could trick the system into believing they were trapped in a severe, red-alert weather zone while actually resting safely at home. This could trigger false payouts at scale and rapidly drain the liquidity pool.
+### Threat Model
 
-To defend against this, QuickShield should verify that device GPS, platform partner logs such as pickup and drop zones, and the rider's registered home and operating area all fall within the impacted micro-zones during the disruption window. Any inconsistency, such as a location far outside the affected area or activity in a different city, should immediately raise a fraud flag for manual review or automated rejection.
+Some malicious riders may use GPS-spoofing tools to fake presence inside an affected zone during a disruption window. If the system trusts location data blindly, it could approve false payouts and weaken the sustainability of the pool.
 
-If the rider's operating area is significantly farther away from the impacted micro-zone, that should also raise a fraud flag.
+### Core Defense Principle
+
+No payout decision should rely on a single signal. QuickShield should validate claims using multiple independent signals across location, activity, device behavior, and service-zone consistency.
+
+### Validation Layers
+
+- GPS validation: Confirm the rider device was present inside the impacted micro-zone during the disruption window.
+- Platform activity correlation: Match pickup, drop, or order-assignment logs against the same zone and time range.
+- Operating-area consistency: Compare the impacted zone against the rider's registered service area and historical working zone.
+- Behavioral consistency: Detect impossible jumps, static spoof patterns, or unrealistic speeds.
+- Device and network checks: Review location drift, sensor consistency, and abrupt cross-zone changes that suggest manipulation.
+
+### Advanced Differentiation Logic
+
+QuickShield differentiates between genuine riders and spoofers using behavioral and contextual validation.
+
+- Movement consistency: Real riders show continuous movement across delivery routes, while spoofers often show static positions or unrealistic jumps.
+- Order activity correlation: Genuine riders usually have matching pickup or drop activity during the disruption window. Missing or contradictory activity increases fraud risk.
+
+### Multi-Signal Data Validation
+
+Beyond GPS, the system should analyze:
+
+- Platform order logs (pickup/drop timestamps)
+- Historical rider activity patterns
+- Device-level signals (speed, location drift)
+- Network consistency (sudden jumps across distant zones)
+
+This multi-signal approach reduces reliance on spoofable GPS data.
+
+### Fair UX for Flagged Claims
+
+To avoid penalizing honest riders, the review flow should remain user-safe and explainable.
+
+- Soft flagging: Suspicious claims are held for review instead of being rejected immediately.
+- Manual review: Flagged cases are checked using additional evidence and rule-based audit trails.
+- User transparency: Riders are informed that the claim is under verification because of unusual activity.
+- Retry mechanism: Riders can revalidate by sharing additional supporting data or activity evidence.
+
+### Decision Outcomes
+
+- Approve automatically when signals are consistent across zone, time, and rider activity.
+- Hold for review when one or more signals conflict but fraud is not yet certain.
+- Reject when evidence strongly indicates spoofing, impossible movement, or zone mismatch.
 
 ## Why This Product Matters
 
