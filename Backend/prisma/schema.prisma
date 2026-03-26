@@ -1,0 +1,70 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://neondb_owner:npg_DEOjMJ6xyUm0@ep-silent-base-a1wdt6dx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+}
+
+model User {
+  id         String        @id @default(uuid())
+  phone      String?       @unique
+  email      String?       @unique
+  authProvider String      // "google" | "apple" | "phone"
+  createdAt  DateTime      @default(now())
+  profile    RiderProfile?
+  policies   Policy[]
+}
+
+model RiderProfile {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id])
+  platform        String   // "zepto" | "blinkit"
+  serviceZone     String   // e.g. "Bengaluru-Koramangala"
+  avgDailyIncome  Float    // computed from last 8 weeks
+  weeklyWorkDays  Int      @default(6)
+  zoneRiskScore   Float    @default(0.3)  // seeded from zone history
+}
+
+model Policy {
+  id              String   @id @default(uuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  status          String   // "active" | "expired" | "pending_payment"
+  weekStartDate   DateTime
+  weekEndDate     DateTime
+  coveragePerDay  Float
+  weeklyPremium   Float
+  riskSnapshot    Json     // { F, Z, A, composite } at time of purchase
+  claims          Claim[]
+}
+
+model Claim {
+  id             String   @id @default(uuid())
+  policyId       String
+  policy         Policy   @relation(fields: [policyId], references: [id])
+  triggerType    String   // "rain" | "app_outage" | "zone_closure"
+  affectedSlots  Json     // ["S3", "S4"]
+  disruptedHours Float
+  payoutAmount   Float
+  status         String   // "auto_approved" | "pending_review" | "paid"
+  createdAt      DateTime @default(now())
+}
+
+model DisruptionEvent {
+  id          String   @id @default(uuid())
+  zone        String
+  triggerType String
+  startTime   DateTime
+  endTime     DateTime?
+  dataSnapshot Json    // raw API response that triggered it
+}
