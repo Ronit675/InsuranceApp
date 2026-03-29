@@ -15,24 +15,30 @@ datasource db {
 }
 
 model User {
-  id         String        @id @default(uuid())
-  phone      String?       @unique
-  email      String?       @unique
+  id           String        @id @default(uuid())
+  phone        String?       @unique
+  email        String?       @unique
+  fullName     String?
+  dateOfBirth  DateTime?
+  address      String?
+  profilePhoto String?
   authProvider String      // "google" | "apple" | "phone"
-  createdAt  DateTime      @default(now())
-  profile    RiderProfile?
-  policies   Policy[]
+  createdAt    DateTime      @default(now())
+  profile      RiderProfile?
+  policies     Policy[]
 }
 
 model RiderProfile {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id])
-  platform        String   // "zepto" | "blinkit"
-  serviceZone     String   // e.g. "Bengaluru-Koramangala"
-  avgDailyIncome  Float    // computed from last 8 weeks
-  weeklyWorkDays  Int      @default(6)
-  zoneRiskScore   Float    @default(0.3)  // seeded from zone history
+  id                       String   @id @default(uuid())
+  userId                   String   @unique
+  user                     User     @relation(fields: [userId], references: [id])
+  platform                 String   // "zepto" | "blinkit"
+  city                     String?
+  serviceZone              String   // e.g. "Bengaluru-Koramangala"
+  avgDailyIncome           Float
+  weeklyWorkDays           Int      @default(6)
+  zoneRiskScore            Float    @default(0.3)  // seeded from zone history
+  platformConnectionStatus String   @default("not_connected") // "not_connected" | "verified" | "not_found"
 }
 
 model Policy {

@@ -41,7 +41,14 @@
           }
         }
       ],
-      "@react-native-google-signin/google-signin"
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow QuickShield to access your photos so you can upload a profile picture."
+        }
+      ],
+      "@react-native-google-signin/google-signin",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

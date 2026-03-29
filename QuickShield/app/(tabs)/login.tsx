@@ -3,24 +3,13 @@ import { ActivityIndicator, View } from 'react-native';
 import { router } from 'expo-router';
 
 import { useAuth } from './src/context/AuthContext';
+import LoginScreen from './src/screens/LoginScreen';
 
-const loadingStyles = {
-  flex: 1,
-  justifyContent: 'center' as const,
-  alignItems: 'center' as const,
-  backgroundColor: '#0A0A0F',
-};
-
-export default function IndexRoute() {
+export default function LoginRoute() {
   const { user, isLoading } = useAuth();
 
   useEffect(() => {
-    if (isLoading) return;
-
-    if (!user) {
-      router.replace('/login');
-      return;
-    }
+    if (isLoading || !user) return;
 
     if (user.profileStatus === 'auth_only') {
       router.replace('/onboarding-platform');
@@ -37,14 +26,18 @@ export default function IndexRoute() {
 
   if (isLoading) {
     return (
-      <View style={loadingStyles}>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0F' }}>
         <ActivityIndicator color="#00E5A0" size="large" />
       </View>
     );
   }
 
+  if (!user) {
+    return <LoginScreen />;
+  }
+
   return (
-    <View style={loadingStyles}>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0F' }}>
       <ActivityIndicator color="#00E5A0" size="large" />
     </View>
   );
