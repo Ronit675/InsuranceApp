@@ -10,14 +10,10 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
+import * as Location from 'expo-location';
 
 import api from './src/services/api';
 import { useAuth } from './src/context/AuthContext';
-import {
-  getCurrentCoordinates,
-  LocationPermissionError,
-  startBackgroundLocationTracking,
-} from './src/services/location';
 
 type PremiumRecommendation = {
   recommended: number;
@@ -54,53 +50,6 @@ type CurrentWeatherSnapshot = {
   humidityLabel: string;
 };
 
-type GoogleWeatherCondition = {
-  description?: { text?: string };
-  type?: string;
-};
-
-type GoogleTemperature = {
-  degrees?: number;
-  unit?: 'CELSIUS' | 'FAHRENHEIT' | string;
-};
-
-type GoogleCurrentConditionsResponse = {
-  weatherCondition?: GoogleWeatherCondition;
-  temperature?: GoogleTemperature;
-  feelsLikeTemperature?: GoogleTemperature;
-  relativeHumidity?: number;
-};
-
-type GoogleForecastDay = {
-  displayDate?: {
-    year?: number;
-    month?: number;
-    day?: number;
-  };
-  daytimeForecast?: {
-    weatherCondition?: GoogleWeatherCondition;
-    precipitation?: {
-      probability?: {
-        percent?: number;
-      };
-    };
-  };
-  nighttimeForecast?: {
-    weatherCondition?: GoogleWeatherCondition;
-    precipitation?: {
-      probability?: {
-        percent?: number;
-      };
-    };
-  };
-  maxTemperature?: GoogleTemperature;
-  minTemperature?: GoogleTemperature;
-};
-
-type GoogleForecastDaysResponse = {
-  forecastDays?: GoogleForecastDay[];
-};
-
 type WeatherLoadState =
   | 'idle'
   | 'locating'
@@ -110,9 +59,17 @@ type WeatherLoadState =
   | 'gps_unavailable'
   | 'error';
 
-const GOOGLE_WEATHER_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_WEATHER_API_KEY;
-const GOOGLE_CURRENT_CONDITIONS_ENDPOINT = 'https://weather.googleapis.com/v1/currentConditions:lookup';
-const GOOGLE_FORECAST_DAYS_ENDPOINT = 'https://weather.googleapis.com/v1/forecast/days:lookup';
+// Helper to map Open-Meteo codes to conditions
+const getWeatherCondition = (code: number): string => {
+  if (code === 0) return 'Clear sky';
+  if (code >= 1 && code <= 3) return 'Partly cloudy';
+  if (code === 45 || code === 48) return 'Foggy';
+  if (code >= 51 && code <= 67) return 'Raining';
+  if (code >= 71 && code <= 77) return 'Snowing';
+  if (code >= 80 && code <= 82) return 'Showers';
+  if (code >= 95) return 'Thunderstorm';
+  return 'Unknown';
+};
 
 const formatZoneName = (value: string | null | undefined) => {
   if (!value) return 'Not selected';
@@ -131,159 +88,12 @@ const buildRecommendationFromIncome = (avgDailyIncome: number): PremiumRecommend
   max: Math.round(avgDailyIncome * 1.2),
 });
 
-const normalizeForecastRisk = (precipitationRiskPercent?: number) => {
-  if (typeof precipitationRiskPercent !== 'number' || Number.isNaN(precipitationRiskPercent)) {
-    return 0;
-  }
-
-  return clamp(precipitationRiskPercent / 100, 0, 1);
-};
-
 const WEATHER_TINTS: Record<string, string> = {
   Sunny: '#F59E0B',
   Cloudy: '#60A5FA',
   Stormy: '#F97316',
   Rain: '#38BDF8',
   Clear: '#F59E0B',
-};
-
-const createWeatherError = (message: string, code: WeatherLoadState) =>
-  Object.assign(new Error(message), { code });
-
-const titleCaseWeather = (value: string) =>
-  value
-    .toLowerCase()
-    .split(' ')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-
-const normalizeWeatherStatus = (condition?: GoogleWeatherCondition) => {
-  const description = condition?.description?.text?.trim();
-  if (description) {
-    return titleCaseWeather(description);
-  }
-
-  if (condition?.type) {
-    return titleCaseWeather(condition.type.replace(/_/g, ' '));
-  }
-
-  return 'Weather unavailable';
-};
-
-const formatTemperature = (temperature?: GoogleTemperature) => {
-  if (typeof temperature?.degrees !== 'number') {
-    return '--';
-  }
-
-  const rounded = Math.round(temperature.degrees);
-  const symbol = temperature.unit === 'FAHRENHEIT' ? 'F' : 'C';
-  return `${rounded}°${symbol}`;
-};
-
-const getPrecipitationRiskPercent = (day: GoogleForecastDay) => {
-  const precipitationPercents = [
-    day.daytimeForecast?.precipitation?.probability?.percent,
-    day.nighttimeForecast?.precipitation?.probability?.percent,
-  ].filter((value): value is number => typeof value === 'number' && !Number.isNaN(value));
-
-  if (!precipitationPercents.length) {
-    return 0;
-  }
-
-  return clamp(Math.max(...precipitationPercents), 0, 100);
-};
-
-const formatGoogleDisplayDate = (displayDate?: { year?: number; month?: number; day?: number }) => {
-  if (!displayDate?.year || !displayDate?.month || !displayDate?.day) {
-    return 'Upcoming day';
-  }
-
-  return new Date(displayDate.year, displayDate.month - 1, displayDate.day).toLocaleDateString('en-IN', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
-};
-
-const buildWeatherUrl = (
-  baseUrl: string,
-  latitude: number,
-  longitude: number,
-  extraParams?: Record<string, string>,
-) => {
-  if (!GOOGLE_WEATHER_API_KEY) {
-    throw createWeatherError('Missing EXPO_PUBLIC_GOOGLE_WEATHER_API_KEY.', 'error');
-  }
-
-  const params = new URLSearchParams({
-    key: GOOGLE_WEATHER_API_KEY,
-    'location.latitude': String(latitude),
-    'location.longitude': String(longitude),
-    unitsSystem: 'METRIC',
-    languageCode: 'en',
-    ...(extraParams ?? {}),
-  });
-
-  return `${baseUrl}?${params.toString()}`;
-};
-
-const parseWeatherErrorResponse = async (response: Response) => {
-  const fallbackMessage = `Weather lookup failed with status ${response.status}.`;
-
-  try {
-    const body = await response.json();
-    return body?.error?.message || fallbackMessage;
-  } catch {
-    return fallbackMessage;
-  }
-};
-
-const fetchCurrentConditions = async (latitude: number, longitude: number): Promise<CurrentWeatherSnapshot> => {
-  const response = await fetch(buildWeatherUrl(GOOGLE_CURRENT_CONDITIONS_ENDPOINT, latitude, longitude));
-
-  if (!response.ok) {
-    throw createWeatherError(await parseWeatherErrorResponse(response), 'error');
-  }
-
-  const data = await response.json() as GoogleCurrentConditionsResponse;
-
-  return {
-    status: normalizeWeatherStatus(data.weatherCondition),
-    temperatureLabel: formatTemperature(data.temperature),
-    feelsLikeLabel: formatTemperature(data.feelsLikeTemperature),
-    humidityLabel:
-      typeof data.relativeHumidity === 'number' ? `${data.relativeHumidity}% humidity` : 'Humidity unavailable',
-  };
-};
-
-const fetchForecastDays = async (latitude: number, longitude: number): Promise<ForecastDay[]> => {
-  const response = await fetch(
-    buildWeatherUrl(GOOGLE_FORECAST_DAYS_ENDPOINT, latitude, longitude, {
-      days: '7',
-      pageSize: '7',
-    }),
-  );
-
-  if (!response.ok) {
-    throw createWeatherError(await parseWeatherErrorResponse(response), 'error');
-  }
-
-  const data = await response.json() as GoogleForecastDaysResponse;
-
-  return (data.forecastDays ?? []).map((day, index) => {
-    const precipitationRiskPercent = getPrecipitationRiskPercent(day);
-
-    return {
-      id: `${day.displayDate?.year ?? 'x'}-${day.displayDate?.month ?? 'x'}-${day.displayDate?.day ?? index}`,
-      dateLabel: formatGoogleDisplayDate(day.displayDate),
-      weatherStatus: normalizeWeatherStatus(
-        day.daytimeForecast?.weatherCondition ?? day.nighttimeForecast?.weatherCondition,
-      ),
-      temperatureBand: `${formatTemperature(day.minTemperature)} / ${formatTemperature(day.maxTemperature)}`,
-      precipitationRiskPercent,
-      forecastRisk: normalizeForecastRisk(precipitationRiskPercent),
-    };
-  });
 };
 
 const getWeatherTint = (status: string) => {
@@ -306,7 +116,7 @@ function WeatherForecastCard({
       <Text style={styles.cardEyebrow}>Next 7 days</Text>
       <Text style={styles.forecastTitle}>Live weather outlook</Text>
       <Text style={styles.forecastSubtitle}>
-        Pulled from your current GPS location after premium calculation.
+        Pulled from your current GPS location for risk assessment.
       </Text>
 
       <View style={styles.currentWeatherCard}>
@@ -369,7 +179,7 @@ function WeatherStateCard({
       {loading ? (
         <View style={styles.weatherLoadingRow}>
           <ActivityIndicator color="#00E5A0" />
-          <Text style={styles.weatherLoadingText}>Loading weather for your current location</Text>
+          <Text style={styles.weatherLoadingText}>Loading weather for your location</Text>
         </View>
       ) : null}
 
@@ -419,7 +229,7 @@ export default function CreatePolicyRoute() {
         );
 
       if (!nextRecommendation) {
-        throw new Error('Coverage recommendation is unavailable until rider income is connected.');
+        throw new Error('Coverage recommendation unavailable. Connect rider income first.');
       }
       setRecommendation(nextRecommendation);
       setCoveragePerDay(nextRecommendation.recommended);
@@ -446,34 +256,77 @@ export default function CreatePolicyRoute() {
   const loadLiveWeather = async () => {
     setWeatherLoadState('locating');
     setWeatherErrorMessage(null);
-    setCurrentWeather(null);
-    setForecast(null);
 
     try {
-      const { latitude, longitude } = await getCurrentCoordinates();
-      setWeatherLoadState('loading');
-
-      try {
-        await startBackgroundLocationTracking();
-      } catch (backgroundError: any) {
-        console.warn('Background location tracking could not be started:', backgroundError?.message || backgroundError);
+      // 1. Get foreground permission (direct check for more reliability)
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setWeatherLoadState('permission_denied');
+        setWeatherErrorMessage('Location access denied.');
+        return;
       }
 
-      const [currentConditions, forecastDays] = await Promise.all([
-        fetchCurrentConditions(latitude, longitude),
-        fetchForecastDays(latitude, longitude),
-      ]);
+      const servicesEnabled = await Location.hasServicesEnabledAsync();
+      if (!servicesEnabled) {
+        setWeatherLoadState('gps_unavailable');
+        setWeatherErrorMessage('GPS is disabled.');
+        return;
+      }
 
-      setCurrentWeather(currentConditions);
-      setForecast(forecastDays);
+      // 2. Get location with fallback
+      setWeatherLoadState('loading');
+      let location;
+      try {
+        location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+      } catch {
+        location = await Location.getLastKnownPositionAsync({});
+      }
+
+      if (!location) {
+        throw new Error('GPS position unavailable.');
+      }
+
+      const { latitude, longitude } = location.coords;
+
+      // 3. Fetch from Open-Meteo
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`;
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Weather API failed.');
+
+      const data = await response.json();
+
+      const currentHourIndex = new Date().getHours();
+      setCurrentWeather({
+        status: getWeatherCondition(data.hourly.weathercode[currentHourIndex]),
+        temperatureLabel: `${Math.round(data.hourly.temperature_2m[currentHourIndex])}°C`,
+        feelsLikeLabel: `${Math.round(data.hourly.temperature_2m[currentHourIndex])}°C`,
+        humidityLabel: `${data.hourly.relativehumidity_2m[currentHourIndex]}% humidity`
+      });
+
+      const mappedForecast: ForecastDay[] = data.daily.time.map((time: string, index: number) => {
+        const dateObj = new Date(time);
+        const precipitationRisk = data.daily.precipitation_probability_max[index] || 0;
+
+        return {
+          id: time,
+          dateLabel: index === 0 ? 'Today' : dateObj.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }),
+          weatherStatus: getWeatherCondition(data.daily.weathercode[index]),
+          temperatureBand: `${Math.round(data.daily.temperature_2m_min[index])}° / ${Math.round(data.daily.temperature_2m_max[index])}°`,
+          precipitationRiskPercent: precipitationRisk,
+          forecastRisk: clamp(precipitationRisk / 100, 0, 1)
+        };
+      });
+
+      setForecast(mappedForecast);
       setWeatherLoadState('ready');
-      return { currentConditions, forecastDays };
+      return { forecastDays: mappedForecast };
     } catch (err: any) {
-      const code = err instanceof LocationPermissionError
-        ? err.code
-        : (err?.code as WeatherLoadState | undefined) ?? 'error';
-      setWeatherLoadState(code);
-      setWeatherErrorMessage(err?.message || 'Could not load live weather right now.');
+      console.error('Weather error:', err);
+      setWeatherLoadState('error');
+      setWeatherErrorMessage(err?.message || 'Failed to load weather.');
       throw err;
     }
   };
@@ -485,8 +338,6 @@ export default function CreatePolicyRoute() {
     setCurrentWeather(null);
     setForecast(null);
     setWeatherLoadState('idle');
-    setWeatherErrorMessage(null);
-    setLastForecastRisk(undefined);
   };
 
   const handleCalculatePremium = async () => {
@@ -495,11 +346,12 @@ export default function CreatePolicyRoute() {
       let forecastRisk: number | undefined;
 
       try {
-        const { forecastDays } = await loadLiveWeather();
-        if (forecastDays.length > 0) {
-          forecastRisk = forecastDays[0]?.forecastRisk;
+        const weatherResult = await loadLiveWeather();
+        if (weatherResult && weatherResult.forecastDays.length > 0) {
+          forecastRisk = weatherResult.forecastDays[0]?.forecastRisk;
         }
-      } catch {
+      } catch (weatherErr) {
+        console.warn('Weather fetch failed during calculation:', weatherErr);
         forecastRisk = undefined;
       }
 
@@ -510,10 +362,6 @@ export default function CreatePolicyRoute() {
       setLastForecastRisk(forecastRisk);
       setPremium(response.data as PremiumCalculation);
     } catch (err: any) {
-      setCurrentWeather(null);
-      setForecast(null);
-      setWeatherLoadState('idle');
-      setWeatherErrorMessage(null);
       Alert.alert(
         'Calculation failed',
         err.response?.data?.message || err.message || 'Could not calculate premium.',
@@ -524,29 +372,19 @@ export default function CreatePolicyRoute() {
   };
 
   const handleBuyPremium = async () => {
-    if (!premium) {
-      return;
-    }
-
+    if (!premium) return;
     setBuying(true);
-
     try {
       await api.post('/policy/purchase', {
         coveragePerDay: premium.coveragePerDay,
         forecastRisk: lastForecastRisk,
       });
 
-      Alert.alert('Protection activated', 'Your weekly premium has been purchased and added to purchase history.', [
-        {
-          text: 'Go to Home',
-          onPress: () => router.replace('/home'),
-        },
+      Alert.alert('Protection activated', 'Your weekly premium has been purchased.', [
+        { text: 'Go to Home', onPress: () => router.replace('/home') },
       ]);
     } catch (err: any) {
-      Alert.alert(
-        'Purchase failed',
-        err.response?.data?.message || err.message || 'Could not buy this weekly premium.',
-      );
+      Alert.alert('Purchase failed', err.response?.data?.message || err.message);
     } finally {
       setBuying(false);
     }
@@ -564,7 +402,7 @@ export default function CreatePolicyRoute() {
     return (
       <View style={styles.loadingContainer}>
         <Text style={styles.emptyTitle}>Policy creation unavailable</Text>
-        <TouchableOpacity onPress={() => router.replace('/home')} style={styles.primaryBtn} activeOpacity={0.85}>
+        <TouchableOpacity onPress={() => router.replace('/home')} style={styles.primaryBtn}>
           <Text style={styles.primaryBtnText}>Back to home</Text>
         </TouchableOpacity>
       </View>
@@ -575,13 +413,13 @@ export default function CreatePolicyRoute() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0A0A0F" />
       <ScrollView contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} activeOpacity={0.85}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backBtnText}>Back</Text>
         </TouchableOpacity>
 
         <Text style={styles.title}>Create policy</Text>
         <Text style={styles.subtitle}>
-          Your premium is calculated from your rider profile and the ML-backed premium engine.
+          Your premium is calculated from your rider profile and live weather data.
         </Text>
 
         <View style={styles.contextCard}>
@@ -599,10 +437,10 @@ export default function CreatePolicyRoute() {
           </Text>
 
           <View style={styles.adjustRow}>
-            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustCoverage(-50)} activeOpacity={0.85}>
+            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustCoverage(-50)}>
               <Text style={styles.adjustBtnText}>- 50</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustCoverage(50)} activeOpacity={0.85}>
+            <TouchableOpacity style={styles.adjustBtn} onPress={() => adjustCoverage(50)}>
               <Text style={styles.adjustBtnText}>+ 50</Text>
             </TouchableOpacity>
           </View>
@@ -611,7 +449,6 @@ export default function CreatePolicyRoute() {
             style={[styles.primaryBtn, calculating && styles.primaryBtnDisabled]}
             onPress={handleCalculatePremium}
             disabled={calculating}
-            activeOpacity={0.85}
           >
             {calculating ? (
               <ActivityIndicator color="#08110F" />
@@ -643,7 +480,6 @@ export default function CreatePolicyRoute() {
                 style={[styles.purchaseBtn, buying && styles.primaryBtnDisabled]}
                 onPress={handleBuyPremium}
                 disabled={buying}
-                activeOpacity={0.85}
               >
                 {buying ? (
                   <ActivityIndicator color="#FFFFFF" />
@@ -654,45 +490,22 @@ export default function CreatePolicyRoute() {
             </View>
 
             {weatherLoadState === 'locating' && (
-              <WeatherStateCard
-                title="Checking your location"
-                description="QuickShield needs GPS access to load live weather for your current area."
-                loading
-              />
+              <WeatherStateCard title="Locating..." description="Getting your GPS coordinates." loading />
             )}
             {weatherLoadState === 'loading' && (
-              <WeatherStateCard
-                title="Fetching weather"
-                description="Location found. Pulling live weather data from Google Weather API."
-                loading
-              />
+              <WeatherStateCard title="Fetching..." description="Loading live weather data." loading />
             )}
             {weatherLoadState === 'permission_denied' && (
-              <WeatherStateCard
-                title="Location access required"
-                description={weatherErrorMessage || 'Enable GPS permission to view live weather for your current area.'}
-                actionLabel="Allow location access"
-                onAction={loadLiveWeather}
-              />
-            )}
-            {weatherLoadState === 'gps_unavailable' && (
-              <WeatherStateCard
-                title="GPS unavailable"
-                description={weatherErrorMessage || 'Turn on location services and try again.'}
-                actionLabel="Try again"
-                onAction={loadLiveWeather}
-              />
-            )}
-            {weatherLoadState === 'error' && (
-              <WeatherStateCard
-                title="Weather unavailable"
-                description={weatherErrorMessage || 'Could not load weather data right now.'}
-                actionLabel="Retry weather lookup"
-                onAction={loadLiveWeather}
-              />
+              <WeatherStateCard title="Permission Denied" description="Please enable GPS to view weather." actionLabel="Allow access" onAction={loadLiveWeather} />
             )}
             {weatherLoadState === 'ready' && currentWeather && forecast && (
               <WeatherForecastCard currentWeather={currentWeather} forecast={forecast} />
+            )}
+            {weatherLoadState === 'error' && (
+              <WeatherStateCard title="Weather Unavailable" description={weatherErrorMessage || 'Failed to load weather.'} actionLabel="Retry" onAction={loadLiveWeather} />
+            )}
+            {weatherLoadState === 'gps_unavailable' && (
+              <WeatherStateCard title="GPS Disabled" description="Please turn on location services." actionLabel="Retry" onAction={loadLiveWeather} />
             )}
           </>
         )}
@@ -702,305 +515,54 @@ export default function CreatePolicyRoute() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0A0A0F',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    backgroundColor: '#0A0A0F',
-    gap: 18,
-  },
-  content: {
-    paddingHorizontal: 20,
-    paddingTop: 56,
-    paddingBottom: 40,
-  },
-  backBtn: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#202634',
-    backgroundColor: '#111723',
-    marginBottom: 18,
-  },
-  backBtnText: {
-    color: '#D1D5DB',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 30,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  subtitle: {
-    color: '#7A8597',
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  contextCard: {
-    backgroundColor: '#11141B',
-    borderRadius: 20,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#1C2432',
-    marginBottom: 18,
-  },
-  cardEyebrow: {
-    color: '#00E5A0',
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-    marginBottom: 12,
-  },
-  contextLine: {
-    color: '#D1D5DB',
-    fontSize: 14,
-    marginBottom: 8,
-  },
-  coverageCard: {
-    backgroundColor: '#13131A',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#1E1E2E',
-    marginBottom: 18,
-  },
-  sectionTitle: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 14,
-  },
-  coverageValue: {
-    color: '#FFFFFF',
-    fontSize: 38,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  coverageHint: {
-    color: '#7A8597',
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 16,
-  },
-  adjustRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 18,
-  },
-  adjustBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#293141',
-    backgroundColor: '#0B1017',
-  },
-  adjustBtnText: {
-    color: '#D1D5DB',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  primaryBtn: {
-    height: 54,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#00E5A0',
-    minWidth: 180,
-  },
-  primaryBtnDisabled: {
-    opacity: 0.65,
-  },
-  primaryBtnText: {
-    color: '#08110F',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  resultCard: {
-    backgroundColor: '#0F1F18',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#00E5A033',
-    marginBottom: 18,
-  },
-  premiumValue: {
-    color: '#FFFFFF',
-    fontSize: 36,
-    fontWeight: '800',
-    marginBottom: 6,
-  },
-  premiumMeta: {
-    color: '#8BA798',
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 16,
-  },
-  resultGrid: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  resultStat: {
-    flex: 1,
-    padding: 14,
-    borderRadius: 14,
-    backgroundColor: '#0B1512',
-  },
-  resultStatLabel: {
-    color: '#8BA798',
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  resultStatValue: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  purchaseBtn: {
-    marginTop: 18,
-    height: 54,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#1D4ED8',
-  },
-  purchaseBtnText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  forecastCard: {
-    backgroundColor: '#13131A',
-    borderRadius: 20,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: '#1E1E2E',
-  },
-  forecastTitle: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  forecastSubtitle: {
-    color: '#7A8597',
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 16,
-  },
-  currentWeatherCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderRadius: 16,
-    padding: 16,
-    backgroundColor: '#0B1512',
-    borderWidth: 1,
-    borderColor: '#1E2E26',
-    marginBottom: 14,
-    gap: 12,
-  },
-  currentWeatherLabel: {
-    color: '#8BA798',
-    fontSize: 12,
-    marginBottom: 6,
-  },
-  currentWeatherValue: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  currentWeatherMeta: {
-    color: '#9FB7AB',
-    fontSize: 12,
-  },
-  currentWeatherRight: {
-    alignItems: 'flex-end',
-  },
-  currentWeatherTemp: {
-    color: '#FFFFFF',
-    fontSize: 28,
-    fontWeight: '800',
-    marginBottom: 4,
-  },
-  currentWeatherFeelsLike: {
-    color: '#9FB7AB',
-    fontSize: 12,
-  },
-  forecastList: {
-    gap: 10,
-  },
-  forecastRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRadius: 14,
-    backgroundColor: '#0B1017',
-    borderWidth: 1,
-    borderColor: '#1C2432',
-  },
-  forecastDate: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  forecastHint: {
-    color: '#6B7280',
-    fontSize: 12,
-  },
-  forecastBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderWidth: 1,
-  },
-  forecastBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  weatherLoadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  weatherLoadingText: {
-    color: '#9FB7AB',
-    fontSize: 13,
-  },
-  weatherActionBtn: {
-    alignSelf: 'flex-start',
-    marginTop: 4,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#00E5A0',
-  },
-  weatherActionBtnText: {
-    color: '#08110F',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  emptyTitle: {
-    color: '#FFFFFF',
-    fontSize: 22,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
+  container: { flex: 1, backgroundColor: '#0A0A0F' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0F', paddingHorizontal: 24, gap: 18 },
+  content: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 40 },
+  backBtn: { alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, borderWidth: 1, borderColor: '#202634', backgroundColor: '#111723', marginBottom: 18 },
+  backBtnText: { color: '#D1D5DB', fontSize: 13, fontWeight: '600' },
+  title: { color: '#FFFFFF', fontSize: 30, fontWeight: '700', marginBottom: 8 },
+  subtitle: { color: '#7A8597', fontSize: 14, lineHeight: 20, marginBottom: 24 },
+  contextCard: { backgroundColor: '#11141B', borderRadius: 20, padding: 18, borderWidth: 1, borderColor: '#1C2432', marginBottom: 18 },
+  cardEyebrow: { color: '#00E5A0', fontSize: 12, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 },
+  contextLine: { color: '#D1D5DB', fontSize: 14, marginBottom: 8 },
+  coverageCard: { backgroundColor: '#13131A', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#1E1E2E', marginBottom: 18 },
+  sectionTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700', marginBottom: 14 },
+  coverageValue: { color: '#FFFFFF', fontSize: 38, fontWeight: '800', marginBottom: 6 },
+  coverageHint: { color: '#7A8597', fontSize: 13, lineHeight: 19, marginBottom: 16 },
+  adjustRow: { flexDirection: 'row', gap: 12, marginBottom: 18 },
+  adjustBtn: { flex: 1, height: 48, borderRadius: 12, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#293141', backgroundColor: '#0B1017' },
+  adjustBtnText: { color: '#D1D5DB', fontSize: 14, fontWeight: '700' },
+  primaryBtn: { height: 54, borderRadius: 14, justifyContent: 'center', alignItems: 'center', backgroundColor: '#00E5A0', minWidth: 180 },
+  primaryBtnDisabled: { opacity: 0.65 },
+  primaryBtnText: { color: '#08110F', fontSize: 15, fontWeight: '700' },
+  resultCard: { backgroundColor: '#0F1F18', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#00E5A033', marginBottom: 18 },
+  premiumValue: { color: '#FFFFFF', fontSize: 36, fontWeight: '800', marginBottom: 6 },
+  premiumMeta: { color: '#8BA798', fontSize: 13, lineHeight: 19, marginBottom: 16 },
+  resultGrid: { flexDirection: 'row', gap: 12 },
+  resultStat: { flex: 1, padding: 14, borderRadius: 14, backgroundColor: '#0B1512' },
+  resultStatLabel: { color: '#8BA798', fontSize: 12, marginBottom: 8 },
+  resultStatValue: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  purchaseBtn: { marginTop: 18, height: 54, borderRadius: 14, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1D4ED8' },
+  purchaseBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  forecastCard: { backgroundColor: '#13131A', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#1E1E2E' },
+  forecastTitle: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 6 },
+  forecastSubtitle: { color: '#7A8597', fontSize: 13, lineHeight: 19, marginBottom: 16 },
+  currentWeatherCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderRadius: 16, padding: 16, backgroundColor: '#0B1512', borderWidth: 1, borderColor: '#1E2E26', marginBottom: 14, gap: 12 },
+  currentWeatherLabel: { color: '#8BA798', fontSize: 12, marginBottom: 6 },
+  currentWeatherValue: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', marginBottom: 4 },
+  currentWeatherMeta: { color: '#9FB7AB', fontSize: 12 },
+  currentWeatherRight: { alignItems: 'flex-end' },
+  currentWeatherTemp: { color: '#FFFFFF', fontSize: 28, fontWeight: '800', marginBottom: 4 },
+  currentWeatherFeelsLike: { color: '#9FB7AB', fontSize: 12 },
+  forecastList: { gap: 10 },
+  forecastRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 14, paddingVertical: 14, borderRadius: 14, backgroundColor: '#0B1017', borderWidth: 1, borderColor: '#1C2432' },
+  forecastDate: { color: '#FFFFFF', fontSize: 14, fontWeight: '700', marginBottom: 4 },
+  forecastHint: { color: '#6B7280', fontSize: 12 },
+  forecastBadge: { borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1 },
+  forecastBadgeText: { fontSize: 12, fontWeight: '700' },
+  weatherLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  weatherLoadingText: { color: '#9FB7AB', fontSize: 13 },
+  weatherActionBtn: { alignSelf: 'flex-start', marginTop: 4, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#00E5A0' },
+  weatherActionBtnText: { color: '#08110F', fontSize: 13, fontWeight: '700' },
+  emptyTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', textAlign: 'center' },
 });

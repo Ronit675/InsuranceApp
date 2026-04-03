@@ -9,6 +9,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { signOut } from '../services/auth.service';
 import ProfileAvatar from '../components/ProfileAvatar';
+import WeatherCard from '../components/WeatherCard';
 import type { PolicySummary } from '../types/policy';
 
 type HomeScreenProps = {
@@ -237,6 +238,9 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Weather Card */}
+        <WeatherCard />
 
         {policy?.status === 'active' ? (
           <>
