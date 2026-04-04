@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildAuthUser } from '../auth/auth-user.util';
+import { PolicyService } from '../policy/policy.service';
 import { UpdateUserProfileDto } from './update-user-profile.dto';
 
 const ZONE_RISK_MAP: Record<string, number> = {
@@ -16,9 +17,27 @@ const ZONE_RISK_MAP: Record<string, number> = {
 
 @Injectable()
 export class ProfileService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private policyService: PolicyService,
+  ) {}
 
   async setPlatform(userId: string, platform: string) {
+    const existingProfile = await this.prisma.riderProfile.findUnique({
+      where: { userId },
+    });
+    const isPlatformChange = Boolean(
+      existingProfile
+      && existingProfile.platform
+      && existingProfile.platform !== platform,
+    );
+
+    let removedActivePolicy = false;
+    if (isPlatformChange) {
+      const removalResult = await this.policyService.expireActivePoliciesForPlatformChange(userId);
+      removedActivePolicy = removalResult.removed;
+    }
+
     await this.prisma.riderProfile.upsert({
       where: { userId },
       create: {
@@ -30,11 +49,18 @@ export class ProfileService {
         zoneRiskScore: 0.35,
         platformConnectionStatus: 'not_connected',
       },
-      update: {
-        platform,
-        avgDailyIncome: 0,
-        platformConnectionStatus: 'not_connected',
-      },
+      update: isPlatformChange
+        ? {
+          platform,
+          city: null,
+          serviceZone: 'unknown-zone',
+          avgDailyIncome: 0,
+          zoneRiskScore: 0.35,
+          platformConnectionStatus: 'not_connected',
+        }
+        : {
+          platform,
+        },
     });
 
     const user = await this.prisma.user.findUnique({
@@ -42,7 +68,11 @@ export class ProfileService {
       include: { profile: true },
     });
 
-    return { user: buildAuthUser(user!) };
+    return {
+      user: buildAuthUser(user!),
+      removedActivePolicy,
+      riderDetailsReset: isPlatformChange,
+    };
   }
 
   async setZone(userId: string, serviceZone: string, city: string) {

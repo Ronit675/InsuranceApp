@@ -1,11 +1,11 @@
-export default interface PolicyClaim {
+export interface PolicyClaim {
   payoutAmount: number;
   triggerType: string;
   status: string;
   createdAt: string;
 }
 
-export default interface PolicySummary {
+export interface PolicySummary {
   id: string;
   status: string;
   coveragePerDay: number;

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -10,10 +10,11 @@ import {
   View,
 } from 'react-native';
 import { router } from 'expo-router';
-import * as Location from 'expo-location';
 
 import api from './src/services/api';
 import { useAuth } from './src/context/AuthContext';
+import { getIncompleteProfileFields, isProfileComplete } from './src/services/auth.service';
+import { loadMockWeatherForecast } from './src/services/weather';
 
 type PremiumRecommendation = {
   recommended: number;
@@ -52,24 +53,9 @@ type CurrentWeatherSnapshot = {
 
 type WeatherLoadState =
   | 'idle'
-  | 'locating'
   | 'loading'
   | 'ready'
-  | 'permission_denied'
-  | 'gps_unavailable'
   | 'error';
-
-// Helper to map Open-Meteo codes to conditions
-const getWeatherCondition = (code: number): string => {
-  if (code === 0) return 'Clear sky';
-  if (code >= 1 && code <= 3) return 'Partly cloudy';
-  if (code === 45 || code === 48) return 'Foggy';
-  if (code >= 51 && code <= 67) return 'Raining';
-  if (code >= 71 && code <= 77) return 'Snowing';
-  if (code >= 80 && code <= 82) return 'Showers';
-  if (code >= 95) return 'Thunderstorm';
-  return 'Unknown';
-};
 
 const formatZoneName = (value: string | null | undefined) => {
   if (!value) return 'Not selected';
@@ -80,6 +66,13 @@ const formatZoneName = (value: string | null | undefined) => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const calculateAverageForecastRisk = (forecast: ForecastDay[]) => {
+  if (forecast.length === 0) return undefined;
+
+  const totalRisk = forecast.reduce((sum, day) => sum + day.forecastRisk, 0);
+  return clamp(totalRisk / forecast.length, 0, 1);
+};
 
 const buildRecommendationFromIncome = (avgDailyIncome: number): PremiumRecommendation => ({
   avgDailyIncome,
@@ -114,9 +107,9 @@ function WeatherForecastCard({
   return (
     <View style={styles.forecastCard}>
       <Text style={styles.cardEyebrow}>Next 7 days</Text>
-      <Text style={styles.forecastTitle}>Live weather outlook</Text>
+      <Text style={styles.forecastTitle}>Mock weather outlook</Text>
       <Text style={styles.forecastSubtitle}>
-        Pulled from your current GPS location for risk assessment.
+        Branch-local heavy rainfall used for timer and payout testing.
       </Text>
 
       <View style={styles.currentWeatherCard}>
@@ -172,14 +165,14 @@ function WeatherStateCard({
 }) {
   return (
     <View style={styles.forecastCard}>
-      <Text style={styles.cardEyebrow}>Live weather</Text>
+      <Text style={styles.cardEyebrow}>Mock weather</Text>
       <Text style={styles.forecastTitle}>{title}</Text>
       <Text style={styles.forecastSubtitle}>{description}</Text>
 
       {loading ? (
         <View style={styles.weatherLoadingRow}>
           <ActivityIndicator color="#00E5A0" />
-          <Text style={styles.weatherLoadingText}>Loading weather for your location</Text>
+          <Text style={styles.weatherLoadingText}>Loading mock heavy-rain weather</Text>
         </View>
       ) : null}
 
@@ -194,6 +187,7 @@ function WeatherStateCard({
 
 export default function CreatePolicyRoute() {
   const { user } = useAuth();
+  const hasPromptedForProfileRef = useRef(false);
   const [recommendation, setRecommendation] = useState<PremiumRecommendation | null>(null);
   const [coveragePerDay, setCoveragePerDay] = useState(0);
   const [premium, setPremium] = useState<PremiumCalculation | null>(null);
@@ -207,6 +201,12 @@ export default function CreatePolicyRoute() {
   const [buying, setBuying] = useState(false);
 
   const fetchRecommendation = useCallback(async () => {
+    if (user?.platformConnectionStatus !== 'verified' || !isProfileComplete(user)) {
+      setLoading(false);
+      setRecommendation(null);
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await api.get('/premium/recommendation');
@@ -247,86 +247,100 @@ export default function CreatePolicyRoute() {
     } finally {
       setLoading(false);
     }
-  }, [user?.avgDailyIncome]);
+  }, [user]);
 
   useEffect(() => {
     fetchRecommendation();
   }, [fetchRecommendation]);
 
-  const loadLiveWeather = async () => {
-    setWeatherLoadState('locating');
+  useEffect(() => {
+    if (isProfileComplete(user) || hasPromptedForProfileRef.current) {
+      return;
+    }
+
+    hasPromptedForProfileRef.current = true;
+    const missingFields = getIncompleteProfileFields(user);
+
+    Alert.alert(
+      'Complete your profile first',
+      `Finish your ${missingFields.join(', ')} before protecting your income.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Go to profile',
+          onPress: () => {
+            router.replace('/profile');
+          },
+        },
+      ],
+    );
+  }, [user]);
+
+  if (user?.platformConnectionStatus !== 'verified') {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.emptyTitle}>Connect your q-commerce platform first</Text>
+        <Text style={styles.emptySubtitle}>
+          Rider income and working details are required before protection can be purchased.
+        </Text>
+        <TouchableOpacity onPress={() => router.replace('/platform-connect')} style={styles.primaryBtn}>
+          <Text style={styles.primaryBtnText}>Go to platform connection</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (!isProfileComplete(user)) {
+    const missingFields = getIncompleteProfileFields(user);
+
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.emptyTitle}>Complete your profile first</Text>
+        <Text style={styles.emptySubtitle}>
+          Add your {missingFields.join(', ')} before protecting your income.
+        </Text>
+        <TouchableOpacity onPress={() => router.replace('/profile')} style={styles.primaryBtn}>
+          <Text style={styles.primaryBtnText}>Go to profile</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const loadMockWeather = async () => {
+    setWeatherLoadState('loading');
     setWeatherErrorMessage(null);
 
     try {
-      // 1. Get foreground permission (direct check for more reliability)
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setWeatherLoadState('permission_denied');
-        setWeatherErrorMessage('Location access denied.');
-        return;
-      }
+      const weather = await loadMockWeatherForecast();
 
-      const servicesEnabled = await Location.hasServicesEnabledAsync();
-      if (!servicesEnabled) {
-        setWeatherLoadState('gps_unavailable');
-        setWeatherErrorMessage('GPS is disabled.');
-        return;
-      }
-
-      // 2. Get location with fallback
-      setWeatherLoadState('loading');
-      let location;
-      try {
-        location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-      } catch {
-        location = await Location.getLastKnownPositionAsync({});
-      }
-
-      if (!location) {
-        throw new Error('GPS position unavailable.');
-      }
-
-      const { latitude, longitude } = location.coords;
-
-      // 3. Fetch from Open-Meteo
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`;
-
-      const response = await fetch(url);
-      if (!response.ok) throw new Error('Weather API failed.');
-
-      const data = await response.json();
-
-      const currentHourIndex = new Date().getHours();
       setCurrentWeather({
-        status: getWeatherCondition(data.hourly.weathercode[currentHourIndex]),
-        temperatureLabel: `${Math.round(data.hourly.temperature_2m[currentHourIndex])}°C`,
-        feelsLikeLabel: `${Math.round(data.hourly.temperature_2m[currentHourIndex])}°C`,
-        humidityLabel: `${data.hourly.relativehumidity_2m[currentHourIndex]}% humidity`
+        status: weather.current.status,
+        temperatureLabel: `${weather.current.temperatureC}°C`,
+        feelsLikeLabel: `${weather.current.feelsLikeC}°C`,
+        humidityLabel: `${weather.current.humidityPercent}% humidity`,
       });
 
-      const mappedForecast: ForecastDay[] = data.daily.time.map((time: string, index: number) => {
-        const dateObj = new Date(time);
-        const precipitationRisk = data.daily.precipitation_probability_max[index] || 0;
-
-        return {
-          id: time,
-          dateLabel: index === 0 ? 'Today' : dateObj.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }),
-          weatherStatus: getWeatherCondition(data.daily.weathercode[index]),
-          temperatureBand: `${Math.round(data.daily.temperature_2m_min[index])}° / ${Math.round(data.daily.temperature_2m_max[index])}°`,
-          precipitationRiskPercent: precipitationRisk,
-          forecastRisk: clamp(precipitationRisk / 100, 0, 1)
-        };
-      });
+      const mappedForecast: ForecastDay[] = weather.daily.map((day) => ({
+        id: day.id,
+        dateLabel: day.dateLabel === 'Today'
+          ? 'Today'
+          : new Date(day.id).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }),
+        weatherStatus: day.status,
+        temperatureBand: `${day.minTempC}° / ${day.maxTempC}°`,
+        precipitationRiskPercent: day.precipitationRiskPercent,
+        forecastRisk: clamp(day.forecastRisk, 0, 1),
+      }));
 
       setForecast(mappedForecast);
       setWeatherLoadState('ready');
-      return { forecastDays: mappedForecast };
+      return {
+        forecastDays: mappedForecast,
+        averageForecastRisk: calculateAverageForecastRisk(mappedForecast),
+      };
     } catch (err: any) {
-      console.error('Weather error:', err);
+      console.error('Mock weather error:', err);
       setWeatherLoadState('error');
-      setWeatherErrorMessage(err?.message || 'Failed to load weather.');
+      setWeatherErrorMessage(err?.message || 'Failed to load mock weather.');
       throw err;
     }
   };
@@ -346,9 +360,9 @@ export default function CreatePolicyRoute() {
       let forecastRisk: number | undefined;
 
       try {
-        const weatherResult = await loadLiveWeather();
-        if (weatherResult && weatherResult.forecastDays.length > 0) {
-          forecastRisk = weatherResult.forecastDays[0]?.forecastRisk;
+        const weatherResult = await loadMockWeather();
+        if (weatherResult) {
+          forecastRisk = weatherResult.averageForecastRisk;
         }
       } catch (weatherErr) {
         console.warn('Weather fetch failed during calculation:', weatherErr);
@@ -419,7 +433,7 @@ export default function CreatePolicyRoute() {
 
         <Text style={styles.title}>Create policy</Text>
         <Text style={styles.subtitle}>
-          Your premium is calculated from your rider profile and live weather data.
+          Your premium is calculated from your rider profile and branch mock weather data.
         </Text>
 
         <View style={styles.contextCard}>
@@ -489,23 +503,14 @@ export default function CreatePolicyRoute() {
               </TouchableOpacity>
             </View>
 
-            {weatherLoadState === 'locating' && (
-              <WeatherStateCard title="Locating..." description="Getting your GPS coordinates." loading />
-            )}
             {weatherLoadState === 'loading' && (
-              <WeatherStateCard title="Fetching..." description="Loading live weather data." loading />
-            )}
-            {weatherLoadState === 'permission_denied' && (
-              <WeatherStateCard title="Permission Denied" description="Please enable GPS to view weather." actionLabel="Allow access" onAction={loadLiveWeather} />
+              <WeatherStateCard title="Preparing mock forecast..." description="Loading the heavy-rain test scenario." loading />
             )}
             {weatherLoadState === 'ready' && currentWeather && forecast && (
               <WeatherForecastCard currentWeather={currentWeather} forecast={forecast} />
             )}
             {weatherLoadState === 'error' && (
-              <WeatherStateCard title="Weather Unavailable" description={weatherErrorMessage || 'Failed to load weather.'} actionLabel="Retry" onAction={loadLiveWeather} />
-            )}
-            {weatherLoadState === 'gps_unavailable' && (
-              <WeatherStateCard title="GPS Disabled" description="Please turn on location services." actionLabel="Retry" onAction={loadLiveWeather} />
+              <WeatherStateCard title="Mock weather unavailable" description={weatherErrorMessage || 'Failed to load mock weather.'} actionLabel="Retry" onAction={loadMockWeather} />
             )}
           </>
         )}
@@ -565,4 +570,5 @@ const styles = StyleSheet.create({
   weatherActionBtn: { alignSelf: 'flex-start', marginTop: 4, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#00E5A0' },
   weatherActionBtnText: { color: '#08110F', fontSize: 13, fontWeight: '700' },
   emptyTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  emptySubtitle: { color: '#7A8597', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 6, maxWidth: 300 },
 });

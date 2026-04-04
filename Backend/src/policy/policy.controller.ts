@@ -38,4 +38,13 @@ export class PolicyController {
   removeActive(@Request() req: any) {
     return this.policyService.removeActivePolicy(req.user.userId);
   }
+
+  @Post('mock-rain-claim')
+  creditMockRainClaim(
+    @Request() req: any,
+    @Body('claimSessionKey') claimSessionKey: string,
+    @Body('disruptedHours') disruptedHours: number,
+  ) {
+    return this.policyService.creditMockRainClaim(req.user.userId, claimSessionKey, disruptedHours);
+  }
 }

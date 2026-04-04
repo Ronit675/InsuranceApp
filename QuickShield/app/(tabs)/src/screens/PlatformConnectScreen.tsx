@@ -12,11 +12,13 @@ import {
 import { router } from 'expo-router';
 
 import { useAuth } from '../context/AuthContext';
+import api from '../services/api';
 import {
   connectSelectedPlatform,
   disconnectSelectedPlatform,
   updateSelectedPlatform,
 } from '../services/auth.service';
+import type { PolicySummary } from '../types/policy';
 
 const PLATFORMS = [
   { id: 'zepto', label: 'Zepto', tint: '#A855F7' },
@@ -35,6 +37,19 @@ const formatPlatformName = (platform: string | null) => {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
 };
+
+const getWalletBalance = (policies: PolicySummary[]) =>
+  policies.reduce((policySum, policy) => (
+    policySum + (policy.claims ?? [])
+      .filter((claim) => claim.status === 'paid' || claim.status === 'auto_approved')
+      .reduce((claimSum, claim) => claimSum + claim.payoutAmount, 0)
+  ), 0);
+
+const formatCurrency = (value: number) =>
+  `₹${value.toLocaleString('en-IN', {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : value < 1 ? 4 : 2,
+    maximumFractionDigits: value < 1 ? 4 : 2,
+  })}`;
 
 export default function PlatformConnectScreen() {
   const { user, setUser } = useAuth();
@@ -92,8 +107,8 @@ export default function PlatformConnectScreen() {
     }
   };
 
-  const handlePlatformChange = async () => {
-    if (!selectedPlatform || !hasPlatformChanged) {
+  const performPlatformChange = async () => {
+    if (!selectedPlatform) {
       return;
     }
 
@@ -108,11 +123,73 @@ export default function PlatformConnectScreen() {
         workingShiftLabel: null,
         workingTimeSlots: null,
       });
-      Alert.alert('Platform updated', `${formatPlatformName(selectedPlatform)} is now your selected platform.`);
+      Alert.alert(
+        'Platform updated',
+        `${formatPlatformName(selectedPlatform)} is now your selected platform. Rider details were cleared and the current premium plan was removed if one was active.`,
+      );
     } catch (err: any) {
       Alert.alert('Could not update platform', err.response?.data?.message || err.message || 'Please try again.');
     } finally {
       setUpdatingPlatform(false);
+    }
+  };
+
+  const handlePlatformChange = async () => {
+    if (!selectedPlatform || !hasPlatformChanged) {
+      return;
+    }
+
+    try {
+      const [activePolicyResponse, historyResponse] = await Promise.all([
+        api.get('/policy/active'),
+        api.get('/policy/history'),
+      ]);
+
+      const activePolicy = activePolicyResponse.data as PolicySummary | null;
+      const history = Array.isArray(historyResponse.data) ? historyResponse.data as PolicySummary[] : [];
+      const walletBalance = getWalletBalance(history);
+
+      if (walletBalance > 0) {
+        Alert.alert(
+          'Redeem wallet balance first',
+          `You still have ${formatCurrency(walletBalance)} in the wallet. Redeem the payment before changing your q-commerce platform.`,
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Go to home',
+              onPress: () => {
+                router.replace('/home');
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      if (activePolicy?.status === 'active') {
+        Alert.alert(
+          'Active premium plan found',
+          'Changing the platform will clear the current rider details and you may lose the active premium plan. Do you want to continue?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Change platform',
+              style: 'destructive',
+              onPress: () => {
+                void performPlatformChange();
+              },
+            },
+          ],
+        );
+        return;
+      }
+
+      await performPlatformChange();
+    } catch (err: any) {
+      Alert.alert(
+        'Could not verify platform change',
+        err.response?.data?.message || err.message || 'Please try again.',
+      );
     }
   };
 
