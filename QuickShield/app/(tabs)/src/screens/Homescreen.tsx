@@ -7,7 +7,7 @@ import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { signOut } from '../services/auth.service';
+import { getIncompleteProfileFields, isProfileComplete, signOut } from '../services/auth.service';
 import ProfileAvatar from '../components/ProfileAvatar';
 import RainDisruptionCard from '../components/RainDisruptionCard';
 import WeatherCard from '../components/WeatherCard';
@@ -120,8 +120,26 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
       return;
     }
 
+    if (!isProfileComplete(user)) {
+      const missingFields = getIncompleteProfileFields(user);
+      Alert.alert(
+        'Complete your profile first',
+        `Finish your ${missingFields.join(', ')} before protecting your income.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Go to profile',
+            onPress: () => {
+              router.push('/profile');
+            },
+          },
+        ],
+      );
+      return;
+    }
+
     router.push('/create-policy');
-  }, [user?.platformConnectionStatus]);
+  }, [user]);
 
   const handleRemoveActivePolicy = useCallback(async () => {
     setRemovingPolicy(true);
