@@ -65,6 +65,10 @@ export class PolicyService {
     };
   }
 
+  async expireActivePoliciesForPlatformChange(userId: string) {
+    return this.removeActivePolicy(userId);
+  }
+
   async purchasePolicy(input: PremiumInput) {
     await this.expireCompletedPolicies(input.userId);
 

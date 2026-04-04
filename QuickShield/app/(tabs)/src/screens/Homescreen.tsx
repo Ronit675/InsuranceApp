@@ -9,6 +9,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { signOut } from '../services/auth.service';
 import ProfileAvatar from '../components/ProfileAvatar';
+import RainDisruptionCard from '../components/RainDisruptionCard';
 import WeatherCard from '../components/WeatherCard';
 import type { PolicySummary } from '../types/policy';
 
@@ -100,6 +101,27 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
         : 'Your wallet will show redeemable payouts here as soon as a claim is paid.',
     );
   }, [hasRedeemableBalance]);
+
+  const handleGetProtected = useCallback(() => {
+    if (user?.platformConnectionStatus !== 'verified') {
+      Alert.alert(
+        'Connect your q-commerce platform first',
+        'Connect your rider platform before buying protection so the app can fetch rider details and calculate coverage.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Connect platform',
+            onPress: () => {
+              router.push('/platform-connect');
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    router.push('/create-policy');
+  }, [user?.platformConnectionStatus]);
 
   const handleRemoveActivePolicy = useCallback(async () => {
     setRemovingPolicy(true);
@@ -244,6 +266,8 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
 
         {policy?.status === 'active' ? (
           <>
+            <RainDisruptionCard isActive={isActive} policy={policy} user={user} />
+
             {/* Active policy card */}
             <View style={styles.policyCard}>
               <View style={styles.policyCardHeader}>
@@ -319,7 +343,7 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
             </Text>
             <TouchableOpacity
               style={styles.ctaBtn}
-              onPress={() => router.push('/create-policy')}
+              onPress={handleGetProtected}
               activeOpacity={0.85}
             >
               <Text style={styles.ctaBtnText}>Get protected now</Text>

@@ -8,5 +8,6 @@ import { PolicyService } from './policy.service';
   imports: [AuthModule, PremiumModule],
   controllers: [PolicyController],
   providers: [PolicyService],
+  exports: [PolicyService],
 })
 export class PolicyModule {}

@@ -81,6 +81,13 @@ const formatZoneName = (value: string | null | undefined) => {
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
+const calculateAverageForecastRisk = (forecast: ForecastDay[]) => {
+  if (forecast.length === 0) return undefined;
+
+  const totalRisk = forecast.reduce((sum, day) => sum + day.forecastRisk, 0);
+  return clamp(totalRisk / forecast.length, 0, 1);
+};
+
 const buildRecommendationFromIncome = (avgDailyIncome: number): PremiumRecommendation => ({
   avgDailyIncome,
   recommended: Math.round(avgDailyIncome * 0.9),
@@ -207,6 +214,12 @@ export default function CreatePolicyRoute() {
   const [buying, setBuying] = useState(false);
 
   const fetchRecommendation = useCallback(async () => {
+    if (user?.platformConnectionStatus !== 'verified') {
+      setLoading(false);
+      setRecommendation(null);
+      return;
+    }
+
     setLoading(true);
     try {
       const response = await api.get('/premium/recommendation');
@@ -247,11 +260,25 @@ export default function CreatePolicyRoute() {
     } finally {
       setLoading(false);
     }
-  }, [user?.avgDailyIncome]);
+  }, [user?.avgDailyIncome, user?.platformConnectionStatus]);
 
   useEffect(() => {
     fetchRecommendation();
   }, [fetchRecommendation]);
+
+  if (user?.platformConnectionStatus !== 'verified') {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.emptyTitle}>Connect your q-commerce platform first</Text>
+        <Text style={styles.emptySubtitle}>
+          Rider income and working details are required before protection can be purchased.
+        </Text>
+        <TouchableOpacity onPress={() => router.replace('/platform-connect')} style={styles.primaryBtn}>
+          <Text style={styles.primaryBtnText}>Go to platform connection</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   const loadLiveWeather = async () => {
     setWeatherLoadState('locating');
@@ -291,7 +318,7 @@ export default function CreatePolicyRoute() {
       const { latitude, longitude } = location.coords;
 
       // 3. Fetch from Open-Meteo
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,relativehumidity_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=7&timezone=auto`;
 
       const response = await fetch(url);
       if (!response.ok) throw new Error('Weather API failed.');
@@ -306,7 +333,7 @@ export default function CreatePolicyRoute() {
         humidityLabel: `${data.hourly.relativehumidity_2m[currentHourIndex]}% humidity`
       });
 
-      const mappedForecast: ForecastDay[] = data.daily.time.map((time: string, index: number) => {
+      const mappedForecast: ForecastDay[] = data.daily.time.slice(0, 7).map((time: string, index: number) => {
         const dateObj = new Date(time);
         const precipitationRisk = data.daily.precipitation_probability_max[index] || 0;
 
@@ -322,7 +349,10 @@ export default function CreatePolicyRoute() {
 
       setForecast(mappedForecast);
       setWeatherLoadState('ready');
-      return { forecastDays: mappedForecast };
+      return {
+        forecastDays: mappedForecast,
+        averageForecastRisk: calculateAverageForecastRisk(mappedForecast),
+      };
     } catch (err: any) {
       console.error('Weather error:', err);
       setWeatherLoadState('error');
@@ -347,8 +377,8 @@ export default function CreatePolicyRoute() {
 
       try {
         const weatherResult = await loadLiveWeather();
-        if (weatherResult && weatherResult.forecastDays.length > 0) {
-          forecastRisk = weatherResult.forecastDays[0]?.forecastRisk;
+        if (weatherResult) {
+          forecastRisk = weatherResult.averageForecastRisk;
         }
       } catch (weatherErr) {
         console.warn('Weather fetch failed during calculation:', weatherErr);
@@ -565,4 +595,5 @@ const styles = StyleSheet.create({
   weatherActionBtn: { alignSelf: 'flex-start', marginTop: 4, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#00E5A0' },
   weatherActionBtnText: { color: '#08110F', fontSize: 13, fontWeight: '700' },
   emptyTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  emptySubtitle: { color: '#7A8597', fontSize: 14, lineHeight: 20, textAlign: 'center', marginBottom: 6, maxWidth: 300 },
 });

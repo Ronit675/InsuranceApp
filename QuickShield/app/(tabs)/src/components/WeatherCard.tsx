@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -11,6 +11,8 @@ type HourlyData = {
   time: string;
   temp: number;
   icon: keyof typeof Ionicons.glyphMap;
+  precipitationProbability: number;
+  isCurrentHour: boolean;
 };
 
 type WeatherDay = {
@@ -51,7 +53,16 @@ export default function WeatherCard() {
   const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(0);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchWeather = async () => {
+  const getCurrentHourKey = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hour = String(now.getHours()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hour}:00`;
+  };
+
+  const fetchWeather = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -70,7 +81,7 @@ export default function WeatherCard() {
         location = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.Balanced,
         });
-      } catch (locErr) {
+      } catch {
         // Fallback to last known position if current is failing
         location = await Location.getLastKnownPositionAsync({});
       }
@@ -82,9 +93,10 @@ export default function WeatherCard() {
       }
 
       const { latitude, longitude } = location.coords;
+      const currentHourKey = getCurrentHourKey();
 
       // 3. Fetch from Open-Meteo using native fetch
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,weathercode&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&hourly=temperature_2m,weathercode,precipitation_probability&daily=weathercode,temperature_2m_max,temperature_2m_min&timezone=auto`;
 
       const response = await fetch(url);
       if (!response.ok) {
@@ -110,6 +122,8 @@ export default function WeatherCard() {
             time: hTime,
             temp: Math.round(hourly.temperature_2m[hIndex]),
             icon: getWeatherIcon(hourly.weathercode[hIndex]),
+            precipitationProbability: Math.round(hourly.precipitation_probability[hIndex] ?? 0),
+            isCurrentHour: hTime === currentHourKey,
           }))
           .filter((h: any) => h.time.startsWith(dateStr))
           .map((h: any) => {
@@ -119,8 +133,7 @@ export default function WeatherCard() {
               ...h,
               time: timePart,
             };
-          })
-          .filter((_: any, i: number) => i % 3 === 0); // Sample every 3 hours
+          });
 
         return {
           date: dayName,
@@ -139,11 +152,11 @@ export default function WeatherCard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchWeather();
-  }, []);
+    void fetchWeather();
+  }, [fetchWeather]);
 
   const handleDayPress = (index: number) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -224,8 +237,11 @@ export default function WeatherCard() {
             </View>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hourlyScroll}>
-            {selectedDay.hourly.map((hour, idx) => (
-              <View key={idx} style={styles.hourItem}>
+            {selectedDay.hourly.map((hour) => (
+              <View
+                key={hour.time}
+                style={[styles.hourItem, hour.isCurrentHour && styles.hourItemCurrentHour]}
+              >
                 <Text style={styles.hourTime}>{hour.time}</Text>
                 <Ionicons
                   name={hour.icon}
@@ -234,6 +250,10 @@ export default function WeatherCard() {
                   style={styles.hourIcon}
                 />
                 <Text style={styles.hourTemp}>{hour.temp}°</Text>
+                <View style={styles.precipRow}>
+                  <Ionicons name="rainy-outline" size={12} color="#60A5FA" />
+                  <Text style={styles.precipText}>{hour.precipitationProbability}%</Text>
+                </View>
               </View>
             ))}
           </ScrollView>
@@ -389,13 +409,17 @@ const styles = StyleSheet.create({
   },
   hourItem: {
     alignItems: 'center',
-    marginRight: 14,
+    marginRight: 10,
     backgroundColor: '#0D1117',
-    padding: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     borderRadius: 14,
-    minWidth: 64,
+    minWidth: 58,
     borderWidth: 1,
     borderColor: '#21262D',
+  },
+  hourItemCurrentHour: {
+    borderColor: '#00E5A0',
   },
   hourTime: {
     color: '#8B949E',
@@ -409,6 +433,17 @@ const styles = StyleSheet.create({
   hourTemp: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '700',
+  },
+  precipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  precipText: {
+    color: '#60A5FA',
+    fontSize: 11,
     fontWeight: '700',
   },
   footer: {
