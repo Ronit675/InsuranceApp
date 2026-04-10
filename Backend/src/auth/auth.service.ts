@@ -130,7 +130,7 @@ export class AuthService {
       }
       throw new UnauthorizedException('Invalid OTP');
     }
-
+    
     this.otpStore.delete(phone);
 
     let user = await this.prisma.user.findUnique({
