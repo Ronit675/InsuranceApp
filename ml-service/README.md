@@ -1,365 +1,295 @@
-# QuickShield
+# QuickShield — ML Risk Service
 
-- **Team**: 3Three
-- **Github**: https://github.com/Ronit675/QuickShield
-- **Video Link**: https://www.loom.com/share/25bde692b6c443fba2ac546310d0743a
+A FastAPI microservice that predicts the three risk components used in QuickShield's weekly premium formula. NestJS calls this service on every `POST /premium/calculate` request. If the service is unreachable it degrades silently to static fallback values — the backend never crashes.
 
-## Overview
+---
 
-QuickShield is an AI-enabled parametric insurance platform designed to protect gig workers from income loss caused by external disruptions such as heavy rain, app outages, and local zone closures.
+## How it fits in the stack
 
-The product is built for q-commerce riders who depend on predictable peak-hour earnings. Instead of traditional claims processing, the platform uses verified external signals to detect disruption events and trigger proportional payouts automatically.
-
-## Problem Statement
-
-Q-commerce riders working for platforms such as Zepto, Blinkit, and similar services operate in narrow delivery windows and highly localized service zones. Their weekly income can fall sharply when external events interrupt deliveries.
-
-Common disruption scenarios include:
-
-- Heavy rain or waterlogging during the monsoon season, causing order delays or zone shutdowns.
-- Local curfews, civic restrictions, or market closures that instantly reduce order flow.
-- Platform outages or service interruptions that temporarily prevent riders from receiving or completing orders.
-
-A rider typically works 7 to 10 hours per day, 6 days per week. Losing 2 to 3 peak hours in a single evening can result in meaningful income loss, often without any financial safety net.
-
-## Solution
-
-QuickShield provides parametric income protection for gig workers.
-
-- Coverage is limited to income loss caused by verified external disruptions.
-- Premiums are aligned to weekly payout cycles to match rider cash flow.
-- Claims are triggered automatically using external data, not manual claim filing.
-- Payouts are proportional to affected time slots rather than being based on full-day loss assumptions.
-
-## Core Product Principles
-
-- Scope: Covers income interruption from external disruptions only. It does not include health, accident, vehicle repair, or medical insurance.
-- Model: Uses weekly policy pricing based on expected risk, selected coverage, and rider earnings patterns.
-- Mechanism: Detects trigger events through weather, platform outage, civic, and platform activity data, then initiates automated claim logic.
-
-## Why Mobile-First?
-
-- Riders operate on smartphones during shifts
-- Real-time alerts and payouts require mobile notifications
-- GPS validation is easier via mobile devices
-
-## Tech Stack
-
-| Layer | Choice |
-| --- | --- |
-| Mobile App | React Native + TypeScript |
-| Backend | NestJS (Node.js + TypeScript) |
-| ORM / Database | Prisma + PostgreSQL |
-| Payments | Razorpay / Stripe / UPI sandbox |
-| External Data | Weather APIs, app outage signals, mock q-commerce platform APIs |
-
-## Solution Architecture
-
-```text
-React Native Mobile App <-> NestJS REST API
-                               |
-                               v
-                    PostgreSQL via Prisma ORM
-                               |
-                               v
-        Weather APIs | App Outage Signals | Mock Platform APIs | Payment Sandbox
+```
+React Native app
+      │  POST /premium/calculate  { coveragePerDay }
+      ▼
+NestJS Backend  (premium.service.ts)
+      │  POST /predict/risk  { zone_id, platform, rainfall_mm, ... }
+      ▼
+ML Service  ← you are here
+      │
+      ▼
+GBM models → F, Z, A → composite → risk_multiplier
+      │
+      ▼
+NestJS applies formula:
+  clip(max(20, 30×income/900) × risk_multiplier × cov_factor, 20, 50)
 ```
 
-## Coverage Selection and Premium Model
+---
 
-### 1. Earnings-Based Coverage Recommendation
+## Prerequisites
 
-The platform estimates average rider earnings using the last 4 to 8 weeks of platform income data.
+- Python **3.10 or higher**
+- pip
 
-Example:
+Verify your version:
 
-- Average daily income: Rs 850
-- Recommended protection: Rs 750 per day
-
-The default recommendation protects roughly 80 to 90 percent of verified average earnings.
-
-### 2. Rider-Controlled Coverage Range
-
-The rider can adjust the recommended coverage amount within predefined guardrails.
-
-- Minimum coverage: 60 percent of verified average income
-- Maximum coverage: 120 percent of verified average income
-
-These limits are designed to:
-
-- Keep the product meaningful at the lower bound
-- Reduce over-insurance and fraud exposure at the upper bound
-
-Example display:
-
-- Typical daily earnings: Rs 850
-- Recommended protection: Rs 750 per day
-- Allowed slider range: Rs 510 to Rs 1,020
-
-### 3. Dynamic Weekly Premium Formula
-
-Weekly premium is determined at policy creation and renewal using the formula below:
-
-```text
-Weekly Premium = Base Premium x Risk Factor x Coverage Factor
+```bash
+python3 --version
 ```
 
-Example for a rider in Bengaluru:
+---
 
-- Base premium: Rs 35 per week at Rs 600 per day reference coverage
-- Coverage factor: 750 / 600 = 1.25
-- Risk factor: 1.2 for a high-risk weather week
-- Weekly premium: Rs 35 x 1.25 x 1.2 = Rs 52.50, rounded to Rs 53
+## Project structure
 
-### Premium Inputs
-
-- Risk score: A value in the range `[0,1]` mapped into a risk factor range of approximately `[0.8,1.5]`
-- Coverage factor: Selected protection rate divided by reference rate
-- Zone risk: Historical weather, closure, and disruption frequency for a rider's service zone
-- Forecast risk: Predicted rain, or disruption probability in the next 7 days
-- Exposure: Declared weekly work pattern, such as 8 hours per day for 6 days
-
-## Parametric Trigger Design
-
-The platform models disruptions at the time-slot level because q-commerce income is highly sensitive to peak delivery windows.
-
-### Daily Time Slots
-
-| Slot | Time | Sensitivity |
-| --- | --- | --- |
-| S1 | 6 AM to 10 AM | Morning rush |
-| S2 | 10 AM to 4 PM | Off-peak |
-| S3 | 4 PM to 8 PM | Evening peak |
-| S4 | 8 PM to 12 AM | Late night |
-
-### Automated Triggers
-
-| Trigger | Data Source | Threshold | Payout Logic |
-| --- | --- | --- | --- |
-| Heavy Rain | OpenWeatherMap | Greater than 25 mm/hr in zone | Affected slots |
-| App Outage | Platform status or order-flow signal | Order flow drops to zero during outage window | Affected slots |
-| Zone Closure | Mock civic or traffic API | Orders drop by more than 70 percent | Dark-zone payout |
-
-Example:
-
-If S3 is disrupted from 6 PM to 7 PM due to heavy rain, the rider receives a partial payout for 1 disrupted hour rather than a full-day payout.
-
-## Example Persona Scenario
-
-Ravi is a Zepto delivery partner in Bengaluru earning Rs 850 per day. On a rainy evening during the 6 PM to 8 PM peak slot, heavy rain greater than 25 mm per hour stops deliveries for 1 hour.
-
-QuickShield detects:
-
-- Rain trigger activated
-- Ravi active in zone
-
-The system then auto-triggers the payout:
-
-- Rs 750 per day coverage
-- Rs 93.75 per hour payout rate
-- Ravi gets Rs 93.75 instantly
-
-## AI Flow in Workflow
-
-- Rider earnings, zone history, and forecast data are collected
-- AI model calculates risk score -> feeds premium engine
-- Premium engine computes the weekly premium and coverage recommendation
-- Trigger services monitor live disruption signals
-- Claims workflow validates eligibility and simulates or initiates payout
-
-## AI and ML Roadmap
-
-### Dynamic Pricing
-
-Phase 2 introduces machine learning for more accurate pricing.
-
-- Model candidate: XGBoost
-- Inputs: zone history, weather forecast, and slot-level disruption patterns
-- Output: expected loss for the next policy week, used to refine the risk factor
-
-### Fraud Detection
-
-Phase 3 introduces automated fraud screening.
-
-- Anomaly detection for claim patterns that diverge significantly from peer behavior
-- GPS validation to confirm rider presence in the affected micro-zone
-- Cohort-based risk checks for abnormal frequency or payout size
-
-## Key User Flows
-
-### 1. Onboarding
-
-- Rider connects a delivery platform account
-- The system pulls recent earnings data
-- Recommended daily protection is pre-filled
-- The rider adjusts coverage within allowed limits
-- Weekly premium is calculated and paid through UPI
-
-### 2. Zero-Touch Claims
-
-- A disruption event is detected automatically
-- The claim engine validates trigger conditions
-- GPS and event data confirm rider eligibility
-- A proportional payout is initiated without manual claim submission
-
-### 3. Weekly Renewal
-
-- The rider receives an updated protection and premium estimate for the next week
-- Forecasted risk affects the renewal price
-- Auto-renew can be enabled for continuous coverage
-
-## Phase 1 Prototype Scope
-
-- Static premium calculator
-- Mock trigger simulation
-- UI wireframes for mobile
-- No real-time payouts yet, only simulated payout flows
-
-## Roadmap
-
-## Development Plan (Phase 1 -> Phase 2)
-
-Week 1-2:
-
-- Define schema
-- Setup backend APIs
-- Mock trigger services
-
-Week 3-4:
-
-- Implement policy engine
-- Integrate APIs
-- Build claims system
-
-### Phase 1: Foundation
-
-Completed deliverables:
-
-- Product strategy and concept definition
-- Repository setup and documentation
-- Initial demo planning
-
-### Phase 2: Core Product
-
-Planned deliverables:
-
-- Registration and authentication
-- Earnings import and rider profile creation
-- Policy creation and premium calculation
-- Trigger detection services
-- Basic automated claims flow
-
-### Phase 3: Production Readiness
-
-Planned deliverables:
-
-- Fraud detection services
-- Instant payout workflows
-- Admin and rider dashboards
-- ML-assisted pricing refinement
-
-## Target Project Structure
-
-The structure below represents the intended implementation layout for the full product:
-
-```text
-quickshield/
-├── backend/
-│   ├── src/
-│   │   ├── auth/
-│   │   ├── profile/
-│   │   ├── policy/
-│   │   ├── triggers/
-│   │   ├── claims/
-│   │   └── prisma/
-│   │       └── schema.prisma
-├── mobile/
-│   ├── src/
-│   │   ├── screens/
-│   │   ├── services/
-│   │   └── components/
-├── docs/
-└── README.md
+```
+ml-service/
+├── train.py          # generates synthetic data and trains the 3 GBM models
+├── main.py           # FastAPI app — serves predictions
+├── requirements.txt  # pinned dependencies
+├── README.md         # this file
+└── model/            # created by train.py — do not edit manually
+    ├── model_F.pkl
+    ├── model_Z.pkl
+    ├── model_A.pkl
+    ├── le_zone.pkl
+    ├── le_platform.pkl
+    └── meta.json
 ```
 
-## Success Metrics
+---
 
-### Rider App
+## Setup and first run
 
-- Weekly income protected
-- Number of disrupted hours covered
-- Active protection rate and daily cap
-- Timeline of rain, app outage, and closure events
+### Step 1 — Create a virtual environment
 
-### Admin Dashboard
+```bash
+cd ml-service
+python3 -m venv venv
+```
 
-- Loss ratio by zone
-- Trigger type distribution
-- Rider segment performance
-- Fraud and anomaly alerts
+Activate it:
 
-## Adversarial Defense and Anti-Spoofing Strategy
+```bash
+# macOS / Linux
+source venv/bin/activate
 
-### Threat Model
+# Windows
+venv\Scripts\activate
+```
 
-Some malicious riders may use GPS-spoofing tools to fake presence inside an affected zone during a disruption window. If the system trusts location data blindly, it could approve false payouts and weaken the sustainability of the pool.
+### Step 2 — Install dependencies
 
-### Core Defense Principle
+```bash
+pip install -r requirements.txt
+```
 
-No payout decision should rely on a single signal. QuickShield should validate claims using multiple independent signals across location, activity, device behavior, and service-zone consistency.
+### Step 3 — Train the models
 
-### Validation Layers
+Run this once. It generates 6,000 synthetic training samples, trains three Gradient Boosting models (one each for F, Z, and A), and saves all artifacts into the `model/` folder.
 
-- GPS validation: Confirm the rider device was present inside the impacted micro-zone during the disruption window.
-- Platform activity correlation: Match pickup, drop, or order-assignment logs against the same zone and time range.
-- Operating-area consistency: Compare the impacted zone against the rider's registered service area and historical working zone.
-- Behavioral consistency: Detect impossible jumps, static spoof patterns, or unrealistic speeds.
-- Device and network checks: Review location drift, sensor consistency, and abrupt cross-zone changes that suggest manipulation.
+```bash
+python train.py
+```
 
-### Advanced Differentiation Logic
+Expected output:
 
-QuickShield differentiates between genuine riders and spoofers using behavioral and contextual validation.
+```
+Generating 6000 synthetic training samples...
+  F: MAE=0.0324  R²=0.9326
+  Z: MAE=0.0248  R²=0.9684
+  A: MAE=0.0167  R²=0.8092
 
-- Movement consistency: Real riders show continuous movement across delivery routes, while spoofers often show static positions or unrealistic jumps.
-- Order activity correlation: Genuine riders usually have matching pickup or drop activity during the disruption window. Missing or contradictory activity increases fraud risk.
+All models saved to model/
+```
 
-### Multi-Signal Data Validation
+You only need to re-run `train.py` if you add new zones or change the training logic.
 
-Beyond GPS, the system should analyze:
+### Step 4 — Start the service
 
-- Platform order logs (pickup/drop timestamps)
-- Historical rider activity patterns
-- Device-level signals (speed, location drift)
-- Network consistency (sudden jumps across distant zones)
+```bash
+uvicorn main:app --reload --port 5001
+```
 
-This multi-signal approach reduces reliance on spoofable GPS data.
+The `--reload` flag restarts the server automatically when you edit `main.py`. Remove it in production.
 
-### Fair UX for Flagged Claims
+You should see:
 
-To avoid penalizing honest riders, the review flow should remain user-safe and explainable.
+```
+Models loaded successfully.
+INFO:     Uvicorn running on http://127.0.0.1:5001
+```
 
-- Soft flagging: Suspicious claims are held for review instead of being rejected immediately.
-- Manual review: Flagged cases are checked using additional evidence and rule-based audit trails.
-- User transparency: Riders are informed that the claim is under verification because of unusual activity.
-- Retry mechanism: Riders can revalidate by sharing additional supporting data or activity evidence.
+---
 
-### Decision Outcomes
+## Verifying it works
 
-- Approve automatically when signals are consistent across zone, time, and rider activity.
-- Hold for review when one or more signals conflict but fraud is not yet certain.
-- Reject when evidence strongly indicates spoofing, impossible movement, or zone mismatch.
+### Health check
 
-## Why This Product Matters
+```bash
+curl http://localhost:5001/health
+```
 
-Gig workers face income volatility from events they cannot control. Traditional insurance models are poorly aligned with short-term, hourly income interruptions. QuickShield addresses that gap with a product that is:
+Expected:
 
-- Fast to activate
-- Easy to price weekly
-- Automated in claims handling
-- Grounded in verifiable external data
+```json
+{ "status": "ok", "models_loaded": true }
+```
 
-The long-term goal is to create a reliable financial safety net for high-frequency, low-margin workers who are currently underserved by mainstream insurance products.
+### Predict risk
 
-## One-Line Summary
+```bash
+curl -X POST http://localhost:5001/predict/risk \
+  -H "Content-Type: application/json" \
+  -d '{
+    "zone_id": "bengaluru-koramangala",
+    "platform": "zepto",
+    "rainfall_forecast_mm": 30.0,
+    "historical_disruption_rate": 0.45,
+    "civic_flag": 0,
+    "month": 8,
+    "day_of_week": 2
+  }'
+```
 
-AI-powered parametric insurance that automatically compensates gig workers for hourly income loss using real-time disruption triggers.
+Expected response shape:
+
+```json
+{
+  "F": 0.4812,
+  "Z": 0.3954,
+  "A": 0.1731,
+  "composite": 0.4696,
+  "risk_multiplier": 1.0242,
+  "source": "ml_model",
+  "model_version": "gbm-v1"
+}
+```
+
+### Model metadata
+
+```bash
+curl http://localhost:5001/model/info
+```
+
+Returns the full training config — zones, platforms, features, and metrics.
+
+### Interactive docs
+
+FastAPI auto-generates a UI at:
+
+```
+http://localhost:5001/docs
+```
+
+You can test all endpoints directly from the browser without curl.
+
+---
+
+## Request reference — `POST /predict/risk`
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `zone_id` | string | Yes | Rider's service zone. See supported zones below. |
+| `platform` | string | Yes | `zepto` · `blinkit` · `swiggy` · `zomato` |
+| `rainfall_forecast_mm` | float | No (default 0) | Hourly rainfall in mm from OpenWeatherMap |
+| `historical_disruption_rate` | float | No (default 0.3) | Zone's past 8-week disruption rate (0–1). Stored in `RiderProfile.zoneRiskScore`. |
+| `civic_flag` | int | No (default 0) | `1` if a curfew or strike is active today |
+| `month` | int | No | 1–12. Derived from `new Date()` in NestJS if omitted. |
+| `day_of_week` | int | No | 0 (Sun) – 6 (Sat). Derived from `new Date()` in NestJS if omitted. |
+
+---
+
+## Response reference
+
+| Field | Description |
+|---|---|
+| `F` | Forecast risk (0–1). Driven by rainfall, monsoon season, civic events. |
+| `Z` | Zone risk (0–1). Driven by historical disruption rate and flood-prone flag. |
+| `A` | App crash risk (0–1). Driven by platform baseline and rain-related load spikes. |
+| `composite` | `0.4×F + 0.4×Z + 0.2×A` — the weighted risk index. |
+| `risk_multiplier` | `0.8 + 0.7 × composite^1.5` — plugged directly into the premium formula. |
+| `source` | `ml_model` when GBM ran, `static_fallback` when zone is unknown. |
+| `model_version` | `gbm-v1` — use this to track which model version priced a policy. |
+
+---
+
+## Supported zones
+
+| Zone ID | City | Base risk |
+|---|---|---|
+| `bengaluru-btm` | Bengaluru | High (0.65) |
+| `bengaluru-koramangala` | Bengaluru | Medium (0.45) |
+| `bengaluru-indiranagar` | Bengaluru | Low (0.25) |
+| `bengaluru-whitefield` | Bengaluru | Low (0.20) |
+| `mumbai-andheri` | Mumbai | High (0.70) |
+| `mumbai-bandra` | Mumbai | Medium (0.50) |
+| `delhi-connaught` | Delhi | Medium (0.40) |
+| `delhi-lajpat` | Delhi | Low (0.30) |
+| `hyderabad-hitech` | Hyderabad | Low (0.35) |
+| `pune-koregaon` | Pune | Low (0.28) |
+
+If an unknown zone is sent, the service returns a `static_fallback` response using the average risk value (0.35) instead of raising an error.
+
+---
+
+## Model metrics
+
+Trained on 6,000 synthetic samples with an 80/20 train/test split.
+
+| Model | Target | MAE | R² |
+|---|---|---|---|
+| GBM | F — Forecast risk | 0.0324 | 0.9326 |
+| GBM | Z — Zone risk | 0.0248 | 0.9684 |
+| GBM | A — App crash risk | 0.0167 | 0.8092 |
+
+MAE is on a 0–1 scale, so 0.03 means the model is off by ±3 percentage points on average.
+
+---
+
+## NestJS integration
+
+The NestJS backend connects via `ML_SERVICE_URL` in your `.env`:
+
+```
+ML_SERVICE_URL=http://localhost:5001
+```
+
+The call is made in `ml.service.ts` with a 3-second timeout. If the service is down or too slow, NestJS logs a warning and uses static fallback values — the rider still gets a premium, just without ML adjustment.
+
+---
+
+## Retraining
+
+To add a new zone, open `train.py` and add an entry to the `ZONES` dict:
+
+```python
+ZONES = {
+    ...
+    'chennai-adyar': {'base_z': 0.42, 'flood_prone': True, 'city': 'chennai'},
+}
+```
+
+Then retrain:
+
+```bash
+python train.py
+```
+
+And restart the service:
+
+```bash
+uvicorn main:app --reload --port 5001
+```
+
+No changes needed in NestJS — the new zone will be picked up automatically.
+
+---
+
+## Stopping the service
+
+Press `Ctrl + C` in the terminal where uvicorn is running.
+
+To deactivate the virtual environment when you're done:
+
+```bash
+deactivate
+```
