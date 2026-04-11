@@ -27,8 +27,10 @@ NestJS applies formula:
 
 ## Prerequisites
 
-- Python **3.10 or higher**
+- Python **3.11 or higher**
 - pip
+
+The dependency pins in `requirements.txt` are selected to work with current Python releases, including Python 3.14. If you previously created a virtual environment with older pins, recreate it before reinstalling.
 
 Verify your version:
 
@@ -65,6 +67,8 @@ ml-service/
 cd ml-service
 python3 -m venv venv
 ```
+
+If you are replacing an older environment, delete `venv/` first and then recreate it.
 
 Activate it:
 
