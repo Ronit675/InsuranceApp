@@ -8,6 +8,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { getIncompleteProfileFields, isProfileComplete, signOut } from '../services/auth.service';
+import { getRainDisruptionTrackingState } from '../services/rain-disruption.service';
 import ProfileAvatar from '../components/ProfileAvatar';
 import RainDisruptionCard from '../components/RainDisruptionCard';
 import WeatherCard from '../components/WeatherCard';
@@ -166,7 +167,16 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
     }
   }, []);
 
-  const confirmRemoveActivePolicy = useCallback(() => {
+  const confirmRemoveActivePolicy = useCallback(async () => {
+    const trackingState = await getRainDisruptionTrackingState(user);
+    if (trackingState.isTracking) {
+      Alert.alert(
+        'Calculation cannot be removed',
+        'You cannot remove the current calculation while an active disruption window is being tracked. Wait for the timer card to stop before removing it.',
+      );
+      return;
+    }
+
     Alert.alert(
       'Remove current calculation',
       'Are you sure you want to remove the current calculation?',
@@ -184,7 +194,7 @@ export default function HomeScreen({ isActive = false, bottomInset = 40 }: HomeS
         },
       ],
     );
-  }, [handleRemoveActivePolicy]);
+  }, [handleRemoveActivePolicy, user]);
 
   if (loading) {
     return (

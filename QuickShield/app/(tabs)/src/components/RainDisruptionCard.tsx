@@ -1,10 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import type { AuthUser } from '../services/auth.service';
 import api from '../services/api';
-import { fetchCurrentWeatherSnapshot } from '../services/weather';
+import {
+  getRainDisruptionStorageKey,
+  getRainDisruptionTrackingState,
+  RAIN_TRIGGER_THRESHOLD_MM_PER_HR,
+  readStoredRainDisruptionTimer,
+  persistStoredRainDisruptionTimer,
+} from '../services/rain-disruption.service';
 import type { PolicySummary } from '../types/policy';
 
 type RainDisruptionCardProps = {
@@ -14,118 +19,16 @@ type RainDisruptionCardProps = {
   user: AuthUser | null;
 };
 
-type WorkingWindow = {
-  label: string;
-  key: string;
-  start: Date;
-  end: Date;
-};
-
-type StoredRainDisruptionTimer = {
-  claimSessionKey?: string;
-  creditedHours?: number;
-  startedAtMs: number;
-  windowKey: string;
-};
-
-const RAIN_DISRUPTION_STORAGE_KEY_PREFIX = 'rain-disruption:';
 const WEATHER_REFRESH_INTERVAL_MS = 60_000;
 const TIMER_TICK_INTERVAL_MS = 1_000;
-const RAIN_TRIGGER_THRESHOLD_MM_PER_HR = 8;
 const HOURS_PER_DAY = 24;
 const MS_PER_HOUR = 60 * 60 * 1000;
-
-const getStorageKey = (userId: string | null | undefined) =>
-  `${RAIN_DISRUPTION_STORAGE_KEY_PREFIX}${userId ?? 'anonymous'}`;
 
 const formatCurrency = (value: number) =>
   `₹${value.toLocaleString('en-IN', {
     minimumFractionDigits: Number.isInteger(value) ? 0 : value < 1 ? 4 : 2,
     maximumFractionDigits: value < 1 ? 4 : 2,
   })}`;
-
-const buildClaimSessionKey = (windowKey: string, startedAtMs: number) => `${windowKey}:${startedAtMs}`;
-
-const parseTimeToken = (value: string, baseDate: Date) => {
-  const match = value.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
-  if (!match) {
-    return null;
-  }
-
-  const [, hoursToken, minutesToken, periodToken] = match;
-  const hours = Number(hoursToken) % 12;
-  const minutes = Number(minutesToken);
-  const period = periodToken.toUpperCase();
-
-  const parsedDate = new Date(baseDate);
-  parsedDate.setHours(period === 'PM' ? hours + 12 : hours, minutes, 0, 0);
-  return parsedDate;
-};
-
-const parseWorkingWindow = (label: string, now: Date): WorkingWindow | null => {
-  const [startLabel, endLabel] = label.split(' - ');
-  if (!startLabel || !endLabel) {
-    return null;
-  }
-
-  const start = parseTimeToken(startLabel, now);
-  const end = parseTimeToken(endLabel, now);
-  if (!start || !end) {
-    return null;
-  }
-
-  if (end <= start) {
-    end.setDate(end.getDate() + 1);
-  }
-
-  return {
-    label,
-    key: `${label}:${start.toISOString()}`,
-    start,
-    end,
-  };
-};
-
-const getActiveWorkingWindow = (user: AuthUser | null, now: Date): WorkingWindow | null => {
-  const assignedShift = user?.workingShiftLabel?.trim();
-  if (assignedShift) {
-    const parsedShift = parseWorkingWindow(assignedShift, now);
-    if (parsedShift && now >= parsedShift.start && now < parsedShift.end) {
-      return parsedShift;
-    }
-  }
-
-  for (const timeSlot of user?.workingTimeSlots ?? []) {
-    const parsedSlot = parseWorkingWindow(timeSlot, now);
-    if (parsedSlot && now >= parsedSlot.start && now < parsedSlot.end) {
-      return parsedSlot;
-    }
-  }
-
-  return null;
-};
-
-const readStoredTimer = async (storageKey: string): Promise<StoredRainDisruptionTimer | null> => {
-  const rawValue = await AsyncStorage.getItem(storageKey);
-  if (!rawValue) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(rawValue) as StoredRainDisruptionTimer;
-  } catch {
-    await AsyncStorage.removeItem(storageKey);
-    return null;
-  }
-};
-
-const persistStoredTimer = async (storageKey: string, timer: StoredRainDisruptionTimer) => {
-  await AsyncStorage.setItem(storageKey, JSON.stringify(timer));
-};
-
-const clearStoredTimer = async (storageKey: string) => {
-  await AsyncStorage.removeItem(storageKey);
-};
 
 const formatDuration = (durationMs: number) => {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
@@ -168,33 +71,15 @@ export default function RainDisruptionCard({
   const hasAssignedShift = Boolean(assignedShiftLabel || user?.workingTimeSlots?.length);
 
   const refreshRainStatus = useCallback(async () => {
-    const now = new Date();
-    const storageKey = getStorageKey(user?.id);
-    const activeWorkingWindow = getActiveWorkingWindow(user, now);
+    const trackingState = await getRainDisruptionTrackingState(user);
 
-    setIsWithinWorkingWindow(Boolean(activeWorkingWindow));
-    setLastUpdatedAt(now);
+    setIsWithinWorkingWindow(trackingState.isWithinWorkingWindow);
+    setLastUpdatedAt(new Date());
     setErrorMessage(null);
+    setRainfallRateMmPerHr(trackingState.rainfallRateMmPerHr);
+    setWeatherSummary(trackingState.weatherSummary);
 
-    if (!activeWorkingWindow) {
-      await clearStoredTimer(storageKey);
-      setIsCreditingClaim(false);
-      setIsTracking(false);
-      setTrackedStartMs(null);
-      setTrackedClaimSessionKey(null);
-      setTrackedWindowKey(null);
-      setRainfallRateMmPerHr(null);
-      setWeatherSummary('Outside the rider working slot');
-      return;
-    }
-
-    const weatherSnapshot = await fetchCurrentWeatherSnapshot();
-    const currentRainfallRate = weatherSnapshot.rainfallRateMmPerHr;
-    setRainfallRateMmPerHr(currentRainfallRate);
-    setWeatherSummary(`Current rain rate ${currentRainfallRate.toFixed(1)} mm/hr`);
-
-    if (currentRainfallRate <= RAIN_TRIGGER_THRESHOLD_MM_PER_HR) {
-      await clearStoredTimer(storageKey);
+    if (!trackingState.isTracking) {
       setIsCreditingClaim(false);
       setIsTracking(false);
       setTrackedStartMs(null);
@@ -203,39 +88,9 @@ export default function RainDisruptionCard({
       return;
     }
 
-    const storedTimer = await readStoredTimer(storageKey);
-    const fallbackStartMs = Math.max(
-      activeWorkingWindow.start.getTime(),
-      now.getTime(),
-    );
-
-    const startedAtMs = storedTimer?.windowKey === activeWorkingWindow.key
-      ? storedTimer.startedAtMs
-      : fallbackStartMs;
-    const claimSessionKey = storedTimer?.windowKey === activeWorkingWindow.key
-      ? storedTimer.claimSessionKey ?? buildClaimSessionKey(activeWorkingWindow.key, startedAtMs)
-      : buildClaimSessionKey(activeWorkingWindow.key, startedAtMs);
-    const creditedHours = storedTimer?.windowKey === activeWorkingWindow.key
-      ? storedTimer.creditedHours ?? 0
-      : 0;
-
-    if (
-      storedTimer?.windowKey !== activeWorkingWindow.key
-      || storedTimer.startedAtMs !== startedAtMs
-      || storedTimer.claimSessionKey !== claimSessionKey
-      || storedTimer.creditedHours !== creditedHours
-    ) {
-      await persistStoredTimer(storageKey, {
-        claimSessionKey,
-        creditedHours,
-        startedAtMs,
-        windowKey: activeWorkingWindow.key,
-      });
-    }
-
-    setTrackedStartMs(startedAtMs);
-    setTrackedClaimSessionKey(claimSessionKey);
-    setTrackedWindowKey(activeWorkingWindow.key);
+    setTrackedStartMs(trackingState.trackedStartMs);
+    setTrackedClaimSessionKey(trackingState.trackedClaimSessionKey);
+    setTrackedWindowKey(trackingState.trackedWindowKey);
     setIsTracking(true);
   }, [user]);
 
@@ -311,8 +166,8 @@ export default function RainDisruptionCard({
       return;
     }
 
-    const storageKey = getStorageKey(user?.id);
-    const storedTimer = await readStoredTimer(storageKey);
+    const storageKey = getRainDisruptionStorageKey(user?.id);
+    const storedTimer = await readStoredRainDisruptionTimer(storageKey);
     if (
       !storedTimer
       || storedTimer.windowKey !== trackedWindowKey
@@ -336,7 +191,7 @@ export default function RainDisruptionCard({
         disruptedHours: elapsedTrackedHours,
       });
 
-      await persistStoredTimer(storageKey, {
+      await persistStoredRainDisruptionTimer(storageKey, {
         claimSessionKey: storedTimer.claimSessionKey,
         creditedHours: elapsedTrackedHours,
         startedAtMs: storedTimer.startedAtMs,

@@ -39,6 +39,8 @@ model RiderProfile {
   weeklyWorkDays           Int      @default(6)
   zoneRiskScore            Float    @default(0.3)  // seeded from zone history
   platformConnectionStatus String   @default("not_connected") // "not_connected" | "verified" | "not_found"
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 model Policy {
@@ -51,6 +53,8 @@ model Policy {
   coveragePerDay  Float
   weeklyPremium   Float
   riskSnapshot    Json     // { F, Z, A, composite } at time of purchase
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
   claims          Claim[]
 }
 

@@ -18,7 +18,8 @@ import {
   disconnectSelectedPlatform,
   updateSelectedPlatform,
 } from '../services/auth.service';
-import type { PolicySummary } from '../types/policy';
+import { getRainDisruptionTrackingState } from '../services/rain-disruption.service';
+import type { PolicyClaim, PolicySummary } from '../types/policy';
 
 const PLATFORMS = [
   { id: 'zepto', label: 'Zepto', tint: '#A855F7' },
@@ -38,12 +39,10 @@ const formatPlatformName = (platform: string | null) => {
     .join(' ');
 };
 
-const getWalletBalance = (policies: PolicySummary[]) =>
-  policies.reduce((policySum, policy) => (
-    policySum + (policy.claims ?? [])
-      .filter((claim) => claim.status === 'paid' || claim.status === 'auto_approved')
-      .reduce((claimSum, claim) => claimSum + claim.payoutAmount, 0)
-  ), 0);
+const getWalletBalance = (claims: PolicyClaim[] = []) =>
+  claims
+    .filter((claim) => claim.status === 'paid' || claim.status === 'auto_approved')
+    .reduce((claimSum, claim) => claimSum + claim.payoutAmount, 0);
 
 const formatCurrency = (value: number) =>
   `₹${value.toLocaleString('en-IN', {
@@ -140,14 +139,20 @@ export default function PlatformConnectScreen() {
     }
 
     try {
-      const [activePolicyResponse, historyResponse] = await Promise.all([
-        api.get('/policy/active'),
-        api.get('/policy/history'),
-      ]);
+      const trackingState = await getRainDisruptionTrackingState(user);
+
+      if (trackingState.isTracking) {
+        Alert.alert(
+          'Platform cannot be changed',
+          'You cannot change the platform while an active disruption window is being tracked. Wait for the timer card to stop before switching platforms.',
+        );
+        return;
+      }
+
+      const activePolicyResponse = await api.get('/policy/active');
 
       const activePolicy = activePolicyResponse.data as PolicySummary | null;
-      const history = Array.isArray(historyResponse.data) ? historyResponse.data as PolicySummary[] : [];
-      const walletBalance = getWalletBalance(history);
+      const walletBalance = getWalletBalance(activePolicy?.claims ?? []);
 
       if (walletBalance > 0) {
         Alert.alert(
@@ -195,6 +200,15 @@ export default function PlatformConnectScreen() {
 
   const handleDisconnect = async () => {
     if (!user) {
+      return;
+    }
+
+    const trackingState = await getRainDisruptionTrackingState(user);
+    if (trackingState.isTracking) {
+      Alert.alert(
+        'Platform cannot be disconnected',
+        'You cannot disconnect the platform while an active disruption window is being tracked. Wait for the timer card to stop before disconnecting.',
+      );
       return;
     }
 
