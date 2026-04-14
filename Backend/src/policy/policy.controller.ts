@@ -47,4 +47,12 @@ export class PolicyController {
   ) {
     return this.policyService.creditMockRainClaim(req.user.userId, claimSessionKey, disruptedHours);
   }
+
+  @Post('auto-renew')
+  setAutoRenew(
+    @Request() req: any,
+    @Body('enabled') enabled: boolean,
+  ) {
+    return this.policyService.setAutoRenew(req.user.userId, enabled);
+  }
 }

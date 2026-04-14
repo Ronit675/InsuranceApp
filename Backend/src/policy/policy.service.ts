@@ -216,7 +216,10 @@ export class PolicyService {
         weekEndDate,
         coveragePerDay: premium.coveragePerDay,
         weeklyPremium: premium.weeklyPremium,
-        riskSnapshot: premium.riskSnapshot,
+        riskSnapshot: {
+          ...(premium.riskSnapshot as Record<string, unknown>),
+          autoRenew: false,
+        } as any,
       },
       include: {
         claims: {
@@ -224,5 +227,35 @@ export class PolicyService {
         },
       },
     });
+  }
+
+  async setAutoRenew(userId: string, enabled: boolean) {
+    await this.expireCompletedPolicies(userId);
+
+    const activePolicy = await this.prisma.policy.findFirst({
+      where: { userId, status: 'active' },
+      orderBy: { weekStartDate: 'desc' },
+    });
+
+    if (!activePolicy) {
+      throw new NotFoundException('No active policy found for this user.');
+    }
+
+    const currentRiskSnapshot =
+      activePolicy.riskSnapshot && typeof activePolicy.riskSnapshot === 'object' && !Array.isArray(activePolicy.riskSnapshot)
+        ? (activePolicy.riskSnapshot as Record<string, unknown>)
+        : {};
+
+    await this.prisma.policy.update({
+      where: { id: activePolicy.id },
+      data: {
+        riskSnapshot: {
+          ...currentRiskSnapshot,
+          autoRenew: Boolean(enabled),
+        } as any,
+      },
+    });
+
+    return this.getActivePolicy(userId);
   }
 }

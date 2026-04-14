@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert, View, Text, TouchableOpacity, StyleSheet,
-  StatusBar, ScrollView, RefreshControl, ActivityIndicator,
+  StatusBar, ScrollView, RefreshControl, ActivityIndicator, Switch,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -74,6 +74,8 @@ export default function HomeScreen({
   const [refreshing, setRefreshing] = useState(false);
   const [profileMenuVisible, setProfileMenuVisible] = useState(false);
   const [removingPolicy, setRemovingPolicy] = useState(false);
+  const [autoRenewEnabled, setAutoRenewEnabled] = useState(false);
+  const [updatingAutoRenew, setUpdatingAutoRenew] = useState(false);
   const [miniTrackingLoading, setMiniTrackingLoading] = useState(true);
   const [miniIsTracking, setMiniIsTracking] = useState(false);
   const [miniTrackedStartMs, setMiniTrackedStartMs] = useState<number | null>(null);
@@ -201,6 +203,10 @@ export default function HomeScreen({
     ? Math.max(0, miniClockMs - miniTrackedStartMs)
     : 0;
 
+  useEffect(() => {
+    setAutoRenewEnabled(Boolean(policy?.riskSnapshot?.autoRenew));
+  }, [policy?.id, policy?.riskSnapshot?.autoRenew]);
+
   const handleSignOut = async () => {
     await signOut();
     setUser(null);
@@ -254,6 +260,30 @@ export default function HomeScreen({
 
     router.push('/create-policy');
   }, [user]);
+
+  const handleToggleAutoRenew = useCallback(async (nextValue: boolean) => {
+    if (!policy || policy.status !== 'active') {
+      Alert.alert('No premium plan found', 'Buy a premium plan first to enable auto-renew.');
+      return;
+    }
+
+    const previousValue = autoRenewEnabled;
+    setAutoRenewEnabled(nextValue);
+    setUpdatingAutoRenew(true);
+
+    try {
+      const response = await api.post('/policy/auto-renew', { enabled: nextValue });
+      setPolicy(response.data as PolicySummary);
+    } catch (err: any) {
+      setAutoRenewEnabled(previousValue);
+      Alert.alert(
+        'Could not update auto-renew',
+        err?.response?.data?.message || err?.message || 'Please try again.',
+      );
+    } finally {
+      setUpdatingAutoRenew(false);
+    }
+  }, [autoRenewEnabled, policy]);
 
   const handleRemoveActivePolicy = useCallback(async () => {
     setRemovingPolicy(true);
@@ -444,6 +474,28 @@ export default function HomeScreen({
           <>
             <RainDisruptionCard isActive={isActive} onPolicyRefresh={syncPolicy} policy={policy} user={user} />
 
+            <View style={styles.autoRenewCard}>
+              <View style={styles.autoRenewHeader}>
+                <View style={styles.autoRenewTextWrap}>
+                  <Text style={styles.autoRenewTitle}>Auto renew premium</Text>
+                  <Text style={styles.autoRenewSubtitle}>
+                    Automatically renew this weekly premium at cycle end.
+                  </Text>
+                </View>
+
+                <Switch
+                  value={autoRenewEnabled}
+                  onValueChange={(value) => {
+                    void handleToggleAutoRenew(value);
+                  }}
+                  disabled={updatingAutoRenew}
+                  trackColor={{ false: '#304255', true: '#00E5A0' }}
+                  thumbColor={autoRenewEnabled ? '#0A0A0F' : '#E5E7EB'}
+                  ios_backgroundColor="#304255"
+                />
+              </View>
+            </View>
+
             <View style={styles.policyCard}>
               <View style={styles.policyCardHeader}>
                 <Text style={styles.policyCardTitle}>Active protection</Text>
@@ -509,19 +561,43 @@ export default function HomeScreen({
             )}
           </>
         ) : (
-          <View style={styles.ctaCard}>
-            <Text style={styles.ctaTitle}>You&apos;re not protected yet</Text>
-            <Text style={styles.ctaSubtitle}>
-              Get weekly income protection from ₹20/week. Auto-payouts when disruptions hit your zone.
-            </Text>
-            <TouchableOpacity
-              style={styles.ctaBtn}
-              onPress={handleGetProtected}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.ctaBtnText}>Get protected now</Text>
-            </TouchableOpacity>
-          </View>
+          <>
+            <View style={styles.autoRenewCard}>
+              <View style={styles.autoRenewHeader}>
+                <View style={styles.autoRenewTextWrap}>
+                  <Text style={styles.autoRenewTitle}>Auto renew premium</Text>
+                  <Text style={styles.autoRenewSubtitle}>
+                    No premium plan found. Buy a plan to enable auto-renew.
+                  </Text>
+                </View>
+
+                <Switch
+                  value={false}
+                  onValueChange={(value) => {
+                    void handleToggleAutoRenew(value);
+                  }}
+                  disabled
+                  trackColor={{ false: '#304255', true: '#00E5A0' }}
+                  thumbColor="#E5E7EB"
+                  ios_backgroundColor="#304255"
+                />
+              </View>
+            </View>
+
+            <View style={styles.ctaCard}>
+              <Text style={styles.ctaTitle}>You&apos;re not protected yet</Text>
+              <Text style={styles.ctaSubtitle}>
+                Get weekly income protection from ₹20/week. Auto-payouts when disruptions hit your zone.
+              </Text>
+              <TouchableOpacity
+                style={styles.ctaBtn}
+                onPress={handleGetProtected}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.ctaBtnText}>Get protected now</Text>
+              </TouchableOpacity>
+            </View>
+          </>
         )}
       </ScrollView>
     </View>
@@ -709,6 +785,37 @@ const styles = StyleSheet.create({
     color: '#07120D',
     fontSize: 16,
     fontWeight: '800',
+  },
+
+  autoRenewCard: {
+    backgroundColor: '#102235',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2B4763',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 16,
+  },
+  autoRenewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  autoRenewTextWrap: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  autoRenewTitle: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  autoRenewSubtitle: {
+    color: '#9FB8D3',
+    fontSize: 12,
+    lineHeight: 18,
   },
 
   policyCard: {

@@ -12,5 +12,9 @@ export interface PolicySummary {
   weeklyPremium: number;
   weekStartDate: string;
   weekEndDate: string;
+  riskSnapshot?: {
+    autoRenew?: boolean;
+    [key: string]: unknown;
+  };
   claims?: PolicyClaim[];
 }
