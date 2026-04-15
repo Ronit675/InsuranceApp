@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
@@ -14,8 +14,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import HistoryScreen from './HistoryScreen';
 import HomeScreen from './Homescreen';
 import { useLanguage } from '../directory/Languagecontext';
+import { useLocationIntegrityMonitor } from '../hooks/useLocationIntegrityMonitor';
+import { startBackgroundLocationTracking } from '../services/location';
+const FlagsScreen = React.lazy(() => import('./FlagsScreen'));
 
-type TabKey = 'home' | 'premium' | 'history';
+type TabKey = 'home' | 'flags' | 'premium' | 'history';
 
 type TabDefinition = {
   key: TabKey;
@@ -28,9 +31,19 @@ export default function MainTabsScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<TabKey>('home');
+  const [isClaimsFeatureDisabled, setIsClaimsFeatureDisabled] = useState(false);
+  const [selectedReturnDateLabel, setSelectedReturnDateLabel] = useState<string | null>(null);
+  const [outOfTownUntilDate, setOutOfTownUntilDate] = useState<Date | null>(null);
+  const [flagCounterOffset, setFlagCounterOffset] = useState(0);
+  const [forceGreenUntilMs, setForceGreenUntilMs] = useState<number | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
+  const locationIntegrity = useLocationIntegrityMonitor({
+    enabled: true,
+    pollIntervalMs: 60_000,
+  });
   const TABS: TabDefinition[] = [
     { key: 'home', label: t('tabs.home'), icon: 'home' },
+    { key: 'flags', label: 'Flags', icon: 'flag' },
     { key: 'premium', label: t('tabs.premium'), icon: 'diamond' },
     { key: 'history', label: t('tabs.history'), icon: 'time' },
   ];
@@ -45,6 +58,68 @@ export default function MainTabsScreen() {
     }).start();
   }, [activeIndex, progress]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const startTracking = async () => {
+      try {
+        await startBackgroundLocationTracking();
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Background location tracking not started:', error);
+        }
+      }
+    };
+
+    void startTracking();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!forceGreenUntilMs) {
+      return;
+    }
+
+    if (Date.now() >= forceGreenUntilMs) {
+      setForceGreenUntilMs(null);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setForceGreenUntilMs(null);
+    }, forceGreenUntilMs - Date.now());
+
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [forceGreenUntilMs]);
+
+  const handleImBackRecovered = useCallback(() => {
+    setFlagCounterOffset((previousOffset) => {
+      const currentCount = locationIntegrity.redFlagCount + previousOffset;
+      return currentCount > 0 ? previousOffset - 1 : previousOffset;
+    });
+    setForceGreenUntilMs(Date.now() + 70_000);
+  }, [locationIntegrity.redFlagCount]);
+
+  const adjustedRedFlagCount = Math.max(0, locationIntegrity.redFlagCount + flagCounterOffset);
+  const shouldForceGreen = Boolean(forceGreenUntilMs && Date.now() < forceGreenUntilMs);
+  const sharedLocationIntegrity = shouldForceGreen
+    ? {
+      ...locationIntegrity,
+      isFlagged: false,
+      reasons: [],
+      statusText: 'GPS normal',
+      redFlagCount: adjustedRedFlagCount,
+    }
+    : {
+      ...locationIntegrity,
+      redFlagCount: adjustedRedFlagCount,
+    };
+
   const baseTabHeight = width >= 768 ? 84 : 74;
   const contentBottomInset = baseTabHeight + Math.max(insets.bottom, 12) + 20;
 
@@ -57,7 +132,31 @@ export default function MainTabsScreen() {
             bottomInset={contentBottomInset}
             variant="home"
             onOpenPremium={() => setActiveTab('premium')}
+            locationIntegrity={sharedLocationIntegrity}
+            isClaimsFeatureDisabled={isClaimsFeatureDisabled}
+            setIsClaimsFeatureDisabled={setIsClaimsFeatureDisabled}
+            selectedReturnDateLabel={selectedReturnDateLabel}
+            setSelectedReturnDateLabel={setSelectedReturnDateLabel}
+            outOfTownUntilDate={outOfTownUntilDate}
+            setOutOfTownUntilDate={setOutOfTownUntilDate}
+            onImBackRecovered={handleImBackRecovered}
           />
+        );
+      case 'flags':
+        return (
+          <React.Suspense
+            fallback={(
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0F' }}>
+                <Text style={{ color: '#D1D5DB', fontSize: 14, fontWeight: '600' }}>Loading flags...</Text>
+              </View>
+            )}
+          >
+            <FlagsScreen
+              isActive={activeTab === 'flags'}
+              bottomInset={contentBottomInset}
+              locationIntegrity={sharedLocationIntegrity}
+            />
+          </React.Suspense>
         );
       case 'premium':
         return (
@@ -66,6 +165,14 @@ export default function MainTabsScreen() {
             bottomInset={contentBottomInset}
             variant="premium"
             onOpenPremium={() => setActiveTab('premium')}
+            locationIntegrity={sharedLocationIntegrity}
+            isClaimsFeatureDisabled={isClaimsFeatureDisabled}
+            setIsClaimsFeatureDisabled={setIsClaimsFeatureDisabled}
+            selectedReturnDateLabel={selectedReturnDateLabel}
+            setSelectedReturnDateLabel={setSelectedReturnDateLabel}
+            outOfTownUntilDate={outOfTownUntilDate}
+            setOutOfTownUntilDate={setOutOfTownUntilDate}
+            onImBackRecovered={handleImBackRecovered}
           />
         );
       case 'history':
