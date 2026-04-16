@@ -37,6 +37,8 @@ type HomeScreenProps = {
   setIsClaimsFeatureDisabled: React.Dispatch<React.SetStateAction<boolean>>;
   selectedReturnDateLabel: string | null;
   setSelectedReturnDateLabel: React.Dispatch<React.SetStateAction<string | null>>;
+  outOfTownSinceMs: number | null;
+  setOutOfTownSinceMs: React.Dispatch<React.SetStateAction<number | null>>;
   outOfTownUntilDate: Date | null;
   setOutOfTownUntilDate: React.Dispatch<React.SetStateAction<Date | null>>;
   onImBackRecovered?: () => void;
@@ -103,6 +105,8 @@ export default function HomeScreen({
   setIsClaimsFeatureDisabled,
   selectedReturnDateLabel,
   setSelectedReturnDateLabel,
+  outOfTownSinceMs,
+  setOutOfTownSinceMs,
   outOfTownUntilDate,
   setOutOfTownUntilDate,
   onImBackRecovered,
@@ -271,6 +275,7 @@ export default function HomeScreen({
 
     if (Date.now() > endOfSelectedDay.getTime()) {
       setIsClaimsFeatureDisabled(false);
+      setOutOfTownSinceMs(null);
       setOutOfTownUntilDate(null);
       setSelectedReturnDateLabel(null);
       return;
@@ -279,6 +284,7 @@ export default function HomeScreen({
     const unlockInterval = setInterval(() => {
       if (Date.now() > endOfSelectedDay.getTime()) {
         setIsClaimsFeatureDisabled(false);
+        setOutOfTownSinceMs(null);
         setOutOfTownUntilDate(null);
         setSelectedReturnDateLabel(null);
       }
@@ -289,8 +295,10 @@ export default function HomeScreen({
     };
   }, [
     isClaimsFeatureDisabled,
+    outOfTownSinceMs,
     outOfTownUntilDate,
     setIsClaimsFeatureDisabled,
+    setOutOfTownSinceMs,
     setOutOfTownUntilDate,
     setSelectedReturnDateLabel,
   ]);
@@ -301,6 +309,16 @@ export default function HomeScreen({
 
   useEffect(() => {
     if (isPremiumTab || !isActive) {
+      return;
+    }
+
+    // If pause is already active, do not ask the out-of-town QnA again on restart.
+    if (isClaimsFeatureDisabled) {
+      hasAskedCurrentFlagRef.current = false;
+      setShowFlagQna(false);
+      setFlagQnaAnswer(null);
+      setFlagQnaStep('q1');
+      setShowCustomDatePicker(false);
       return;
     }
 
@@ -322,7 +340,13 @@ export default function HomeScreen({
     setFlagQnaStep('q1');
     setSelectedReturnDateLabel(null);
     setShowCustomDatePicker(false);
-  }, [isActive, isPremiumTab, locationIntegrity.flagLevel, setSelectedReturnDateLabel]);
+  }, [
+    isActive,
+    isPremiumTab,
+    isClaimsFeatureDisabled,
+    locationIntegrity.flagLevel,
+    setSelectedReturnDateLabel,
+  ]);
 
   const now = new Date();
   const baseDay = startOfDay(now);
@@ -363,6 +387,7 @@ export default function HomeScreen({
     });
 
     setSelectedReturnDateLabel(label);
+    setOutOfTownSinceMs((currentValue) => currentValue ?? Date.now());
     setOutOfTownUntilDate(selectedDate ?? (matchingOption ? new Date(matchingOption.date) : null));
     setIsClaimsFeatureDisabled(true);
     setMiniIsTracking(false);
@@ -420,6 +445,7 @@ export default function HomeScreen({
       }
 
       setIsClaimsFeatureDisabled(false);
+      setOutOfTownSinceMs(null);
       setOutOfTownUntilDate(null);
       setSelectedReturnDateLabel(null);
       onImBackRecovered?.();
@@ -433,6 +459,7 @@ export default function HomeScreen({
   }, [
     refreshMiniDisruptionState,
     setIsClaimsFeatureDisabled,
+    setOutOfTownSinceMs,
     setOutOfTownUntilDate,
     setSelectedReturnDateLabel,
     onImBackRecovered,
@@ -993,6 +1020,7 @@ export default function HomeScreen({
                       onPress={() => {
                         setFlagQnaAnswer('no');
                         setIsClaimsFeatureDisabled(false);
+                        setOutOfTownSinceMs(null);
                         setOutOfTownUntilDate(null);
                         setSelectedReturnDateLabel(null);
                         setShowFlagQna(false);

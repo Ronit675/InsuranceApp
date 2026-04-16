@@ -27,6 +27,7 @@ export type FlagHistoryEntry = {
 type UseLocationIntegrityMonitorOptions = {
   enabled: boolean;
   pollIntervalMs?: number;
+  hydratedState?: Partial<LocationIntegrityState> | null;
 };
 
 export type LocationIntegrityFlagLevel = 'none' | 'yellow' | 'red' | 'green';
@@ -144,9 +145,17 @@ const isMockedLocation = (location: Location.LocationObject) => {
   return Boolean(coordsWithMocked?.mocked ?? locationWithMocked?.mocked);
 };
 
+const isRedSeverityReason = (reason: LocationIntegrityReason) =>
+  reason === 'mock_location_detected'
+  || reason === 'high_speed'
+  || reason === 'teleportation'
+  || reason === 'impossible_acceleration'
+  || reason === 'unnatural_velocity_curve';
+
 export const useLocationIntegrityMonitor = ({
   enabled,
   pollIntervalMs = 60_000,
+  hydratedState = null,
 }: UseLocationIntegrityMonitorOptions): LocationIntegrityState => {
   const [state, setState] = useState<LocationIntegrityState>({
     isFlagged: false,
@@ -167,6 +176,27 @@ export const useLocationIntegrityMonitor = ({
   const hasCompletedInitialForegroundCheckRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const hasPromptedForGpsRef = useRef(false);
+  const hasAppliedHydratedStateRef = useRef(false);
+
+  useEffect(() => {
+    if (!hydratedState) {
+      hasAppliedHydratedStateRef.current = false;
+      return;
+    }
+
+    if (hasAppliedHydratedStateRef.current) {
+      return;
+    }
+
+    setState((current) => ({
+      ...current,
+      ...hydratedState,
+      isFlagged: hydratedState.isFlagged ?? (hydratedState.flagLevel ?? current.flagLevel) !== 'none',
+      reasons: hydratedState.reasons ? [...hydratedState.reasons] : current.reasons,
+      history: hydratedState.history ? [...hydratedState.history] : current.history,
+    }));
+    hasAppliedHydratedStateRef.current = true;
+  }, [hydratedState]);
 
   const promptToOpenSettings = (title: string, message: string) => {
     Alert.alert(title, message, [
@@ -335,13 +365,7 @@ export const useLocationIntegrityMonitor = ({
         hasCompletedInitialForegroundCheckRef.current = true;
 
         const uniqueReasons = Array.from(new Set(reasons));
-        const hasSuddenChangeReason = uniqueReasons.some((reason) =>
-          reason === 'mock_location_detected'
-          || reason === 'high_speed'
-          || reason === 'teleportation'
-          || reason === 'impossible_acceleration'
-          || reason === 'unnatural_velocity_curve',
-        );
+        const hasSuddenChangeReason = uniqueReasons.some(isRedSeverityReason);
         const now = Date.now();
 
         if (!cancelled) {
@@ -388,6 +412,8 @@ export const useLocationIntegrityMonitor = ({
               newHistory.push({ reason, detectedAt: now });
             });
 
+            const redSeverityNewReasons = newAnomalyReasons.filter(isRedSeverityReason);
+
             const shouldIncreaseOutsideAfterRed = current.flagLevel === 'red' && isOutsideWorkingArea;
             const additionalCount = shouldIncreaseOutsideAfterRed ? 1 : 0;
 
@@ -405,7 +431,7 @@ export const useLocationIntegrityMonitor = ({
                     ? 'GPS normal - rider back in working area'
                     : 'GPS normal',
               lastCheckedAt: now,
-              redFlagCount: current.redFlagCount + newAnomalyReasons.length + additionalCount,
+              redFlagCount: current.redFlagCount + redSeverityNewReasons.length + additionalCount,
               history: newHistory,
               redFlagDetectedAt: nextRedFlagDetectedAt,
               normalizedAfterRedAt: nextNormalizedAfterRedAt,

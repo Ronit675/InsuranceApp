@@ -1,10 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import api from './api';
+import { getRequiredExpoPublicEnv } from './runtime-config';
 
 const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
 const RIDER_DETAILS_STORAGE_KEY_PREFIX = 'rider-details:';
 const LEGACY_WORKING_SHIFT_STORAGE_KEY_PREFIX = 'working-shift:';
+let googleSignInModulePromise: Promise<typeof import('@react-native-google-signin/google-signin')> | null = null;
 
 type StoredRiderDetails = {
   avgDailyIncome?: number | null;
@@ -20,14 +22,18 @@ export type MockRiderProfileSnapshot = {
   workingTimeSlots: string[];
 };
 
-const getGoogleSignInModule = () => {
+const assertGoogleSignInAvailable = () => {
   if (isExpoGo) {
     throw new Error(
       'This app uses native Google Sign-In and cannot complete login inside Expo Go. Install a development build on your Android phone instead.',
     );
   }
+};
 
-  return require('@react-native-google-signin/google-signin') as typeof import('@react-native-google-signin/google-signin');
+const getGoogleSignInModule = async () => {
+  assertGoogleSignInAvailable();
+  googleSignInModulePromise ??= import('@react-native-google-signin/google-signin');
+  return googleSignInModulePromise;
 };
 
 const getRiderDetailsStorageKey = (userId: string) => `${RIDER_DETAILS_STORAGE_KEY_PREFIX}${userId}`;
@@ -150,16 +156,17 @@ export const clearMockRiderProfileSnapshot = async (userId: string) => {
   await clearRiderDetails(userId);
 };
 
-export const configureGoogleSignIn = () => {
+export const configureGoogleSignIn = async () => {
   if (isExpoGo) {
     return;
   }
 
-  const { GoogleSignin } = getGoogleSignInModule();
+  const { GoogleSignin } = await getGoogleSignInModule();
+  const webClientId = getRequiredExpoPublicEnv('EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID');
 
   GoogleSignin.configure({
     // Must be the WEB client ID, not the Android one
-    webClientId: '236663446258-9tvhq82dh2q4r5mpbkion5ld5gv4kc5i.apps.googleusercontent.com',
+    webClientId,
     offlineAccess: false,
   });
 };
@@ -212,7 +219,7 @@ export const isProfileComplete = (user: AuthUser | null | undefined) =>
   getIncompleteProfileFields(user).length === 0;
 
 export const signInWithGoogle = async (): Promise<AuthUser> => {
-  const { GoogleSignin, isSuccessResponse } = getGoogleSignInModule();
+  const { GoogleSignin, isSuccessResponse } = await getGoogleSignInModule();
 
   await GoogleSignin.hasPlayServices();
   const googleResponse = await GoogleSignin.signIn();
@@ -274,9 +281,8 @@ export const signOut = async () => {
     return;
   }
 
-  const { GoogleSignin } = getGoogleSignInModule();
-
   try {
+    const { GoogleSignin } = await getGoogleSignInModule();
     await GoogleSignin.revokeAccess();
     await GoogleSignin.signOut();
   } catch {

@@ -9,12 +9,50 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { OAuth2Client } from 'google-auth-library';
 import { buildAuthUser } from './auth-user.util';
+import { getRequiredEnv } from '../config/env';
 
 type OtpSession = {
   otp: string;
   expiresAt: number;
   lastSentAt: number;
   failedAttempts: number;
+};
+
+type AppStateHistoryEntry = {
+  reason: string;
+  detectedAt: number;
+};
+
+type AppStateResponse = {
+  flagCount: number;
+  history: AppStateHistoryEntry[];
+  currentFlagLevel: 'none' | 'yellow' | 'red' | 'green';
+  currentReasons: string[];
+  currentStatusText: string;
+  lastCheckedAt: number | null;
+  redFlagDetectedAt: number | null;
+  normalizedAfterRedAt: number | null;
+  outOfStationActive: boolean;
+  outOfStationSince: number | null;
+  outOfStationUntil: number | null;
+  outOfStationReturnLabel: string | null;
+  appBackToNormalAt: number | null;
+};
+
+type SyncAppStateInput = {
+  flagCount?: number;
+  history?: Array<{ reason?: unknown; detectedAt?: unknown }>;
+  currentFlagLevel?: unknown;
+  currentReasons?: unknown;
+  currentStatusText?: unknown;
+  lastCheckedAt?: unknown;
+  redFlagDetectedAt?: unknown;
+  normalizedAfterRedAt?: unknown;
+  outOfStationActive?: unknown;
+  outOfStationSince?: unknown;
+  outOfStationUntil?: unknown;
+  outOfStationReturnLabel?: unknown;
+  appBackToNormalAt?: unknown;
 };
 
 const OTP_LENGTH = 6;
@@ -24,7 +62,6 @@ const MAX_FAILED_OTP_ATTEMPTS = 5;
 
 @Injectable()
 export class AuthService {
-  private googleClient = new OAuth2Client(process.env.GOOGLE_WEB_CLIENT_ID);
   private readonly otpStore = new Map<string, OtpSession>();
 
   constructor(
@@ -33,15 +70,13 @@ export class AuthService {
   ) {}
 
   async googleSignIn(idToken: string) {
-    const audience = process.env.GOOGLE_WEB_CLIENT_ID;
-    if (!audience) {
-      throw new UnauthorizedException('Google client ID is not configured');
-    }
+    const audience = getRequiredEnv('GOOGLE_WEB_CLIENT_ID');
+    const googleClient = new OAuth2Client(audience);
 
     // 1. Verify the token with Google
     let payload: any;
     try {
-      const ticket = await this.googleClient.verifyIdToken({
+      const ticket = await googleClient.verifyIdToken({
         idToken,
         audience,
       });
@@ -160,6 +195,75 @@ export class AuthService {
     return buildAuthUser(user);
   }
 
+  async getAppState(userId: string): Promise<AppStateResponse> {
+    const appState = await this.prisma.riderAppState.upsert({
+      where: { userId },
+      create: {
+        userId,
+        currentStatusText: 'GPS check inactive',
+      },
+      update: {},
+      include: {
+        flagEvents: {
+          orderBy: { detectedAt: 'asc' },
+        },
+      },
+    });
+
+    return this.serializeAppState(appState);
+  }
+
+  async updateAppState(userId: string, input: SyncAppStateInput): Promise<AppStateResponse> {
+    const normalizedHistory = this.normalizeHistory(input.history);
+
+    const appState = await this.prisma.riderAppState.upsert({
+      where: { userId },
+      create: {
+        userId,
+        flagCount: this.normalizeFlagCount(input.flagCount),
+        currentFlagLevel: this.normalizeFlagLevel(input.currentFlagLevel),
+        currentReasons: this.normalizeReasonList(input.currentReasons),
+        currentStatusText: this.normalizeOptionalText(input.currentStatusText) ?? 'GPS check inactive',
+        lastCheckedAt: this.parseOptionalDate(input.lastCheckedAt),
+        redFlagDetectedAt: this.parseOptionalDate(input.redFlagDetectedAt),
+        normalizedAfterRedAt: this.parseOptionalDate(input.normalizedAfterRedAt),
+        outOfStationActive: Boolean(input.outOfStationActive),
+        outOfStationSince: this.parseOptionalDate(input.outOfStationSince),
+        outOfStationUntil: this.parseOptionalDate(input.outOfStationUntil),
+        outOfStationReturnLabel: this.normalizeOptionalText(input.outOfStationReturnLabel),
+        appBackToNormalAt: this.parseOptionalDate(input.appBackToNormalAt),
+      },
+      update: {
+        flagCount: this.normalizeFlagCount(input.flagCount),
+        currentFlagLevel: this.normalizeFlagLevel(input.currentFlagLevel),
+        currentReasons: this.normalizeReasonList(input.currentReasons),
+        currentStatusText: this.normalizeOptionalText(input.currentStatusText) ?? 'GPS check inactive',
+        lastCheckedAt: this.parseOptionalDate(input.lastCheckedAt),
+        redFlagDetectedAt: this.parseOptionalDate(input.redFlagDetectedAt),
+        normalizedAfterRedAt: this.parseOptionalDate(input.normalizedAfterRedAt),
+        outOfStationActive: Boolean(input.outOfStationActive),
+        outOfStationSince: this.parseOptionalDate(input.outOfStationSince),
+        outOfStationUntil: this.parseOptionalDate(input.outOfStationUntil),
+        outOfStationReturnLabel: this.normalizeOptionalText(input.outOfStationReturnLabel),
+        appBackToNormalAt: this.parseOptionalDate(input.appBackToNormalAt),
+      },
+      select: { id: true },
+    });
+
+    if (normalizedHistory.length > 0) {
+      await this.prisma.flagEvent.createMany({
+        data: normalizedHistory.map((entry) => ({
+          appStateId: appState.id,
+          reason: entry.reason,
+          detectedAt: new Date(entry.detectedAt),
+        })),
+        skipDuplicates: true,
+      });
+    }
+
+    return this.getAppState(userId);
+  }
+
   private createSessionResponse(user: {
     id: string;
     email: string | null;
@@ -208,6 +312,126 @@ export class AuthService {
     const min = 10 ** (OTP_LENGTH - 1);
     const max = 10 ** OTP_LENGTH;
     return String(Math.floor(Math.random() * (max - min)) + min);
+  }
+
+  private serializeAppState(appState: {
+    flagCount: number;
+    currentFlagLevel: string;
+    currentReasons: string[];
+    currentStatusText: string;
+    lastCheckedAt: Date | null;
+    redFlagDetectedAt: Date | null;
+    normalizedAfterRedAt: Date | null;
+    outOfStationActive: boolean;
+    outOfStationSince: Date | null;
+    outOfStationUntil: Date | null;
+    outOfStationReturnLabel: string | null;
+    appBackToNormalAt: Date | null;
+    flagEvents: Array<{ reason: string; detectedAt: Date }>;
+  }): AppStateResponse {
+    return {
+      flagCount: appState.flagCount,
+      history: appState.flagEvents.map((entry) => ({
+        reason: entry.reason,
+        detectedAt: entry.detectedAt.getTime(),
+      })),
+      currentFlagLevel: this.normalizeFlagLevel(appState.currentFlagLevel),
+      currentReasons: appState.currentReasons,
+      currentStatusText: appState.currentStatusText,
+      lastCheckedAt: appState.lastCheckedAt?.getTime() ?? null,
+      redFlagDetectedAt: appState.redFlagDetectedAt?.getTime() ?? null,
+      normalizedAfterRedAt: appState.normalizedAfterRedAt?.getTime() ?? null,
+      outOfStationActive: appState.outOfStationActive,
+      outOfStationSince: appState.outOfStationSince?.getTime() ?? null,
+      outOfStationUntil: appState.outOfStationUntil?.getTime() ?? null,
+      outOfStationReturnLabel: appState.outOfStationReturnLabel,
+      appBackToNormalAt: appState.appBackToNormalAt?.getTime() ?? null,
+    };
+  }
+
+  private normalizeFlagCount(value: unknown) {
+    const parsedValue = Number(value);
+    if (!Number.isFinite(parsedValue)) {
+      return 0;
+    }
+
+    return Math.max(0, Math.floor(parsedValue));
+  }
+
+  private normalizeFlagLevel(value: unknown): AppStateResponse['currentFlagLevel'] {
+    switch (value) {
+      case 'yellow':
+      case 'red':
+      case 'green':
+        return value;
+      default:
+        return 'none';
+    }
+  }
+
+  private normalizeReasonList(value: unknown) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return Array.from(new Set(
+      value
+        .map((entry) => this.normalizeOptionalText(entry))
+        .filter((entry): entry is string => Boolean(entry)),
+    ));
+  }
+
+  private normalizeHistory(value: SyncAppStateInput['history']): AppStateHistoryEntry[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    const dedupedEntries = new Map<string, AppStateHistoryEntry>();
+
+    value.forEach((entry) => {
+      const reason = this.normalizeOptionalText(entry?.reason);
+      const detectedAt = this.parseOptionalDate(entry?.detectedAt)?.getTime();
+
+      if (!reason || !detectedAt) {
+        return;
+      }
+
+      dedupedEntries.set(`${reason}:${detectedAt}`, { reason, detectedAt });
+    });
+
+    return Array.from(dedupedEntries.values()).sort((left, right) => left.detectedAt - right.detectedAt);
+  }
+
+  private normalizeOptionalText(value: unknown) {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const trimmedValue = value.trim();
+    return trimmedValue ? trimmedValue : null;
+  }
+
+  private parseOptionalDate(value: unknown) {
+    if (value === null || value === undefined || value === '') {
+      return null;
+    }
+
+    let nextDate: Date;
+    if (typeof value === 'number') {
+      nextDate = new Date(value);
+    } else if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+      nextDate = new Date(Number(value.trim()));
+    } else if (typeof value === 'string') {
+      nextDate = new Date(value);
+    } else {
+      throw new BadRequestException('Invalid timestamp value');
+    }
+
+    if (Number.isNaN(nextDate.getTime())) {
+      throw new BadRequestException('Invalid timestamp value');
+    }
+
+    return nextDate;
   }
 }
 

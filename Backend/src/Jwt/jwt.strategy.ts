@@ -2,8 +2,9 @@
 import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { getRequiredEnv } from '../config/env';
 
-const jwtSecret = process.env.JWT_SECRET ?? 'dev-jwt-secret';
+const jwtSecret = getRequiredEnv('JWT_SECRET');
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, Request, UseGuards } from '@nestjs/common';
+import { Controller, Post, Put, Body, Get, Request, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { GoogleAuthDto } from '../Google/googleauth.dto';
 import { JwtAuthGuard } from '../Jwt/jwtauth.guard';
@@ -30,5 +30,17 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   getMe(@Request() req: any) {
     return this.authService.getMe(req.user.userId);
+  }
+
+  @Get('app-state')
+  @UseGuards(JwtAuthGuard)
+  getAppState(@Request() req: any) {
+    return this.authService.getAppState(req.user.userId);
+  }
+
+  @Put('app-state')
+  @UseGuards(JwtAuthGuard)
+  updateAppState(@Request() req: any, @Body() body: any) {
+    return this.authService.updateAppState(req.user.userId, body);
   }
 }
