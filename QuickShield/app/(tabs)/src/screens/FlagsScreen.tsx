@@ -14,12 +14,8 @@ const formatReason = (reason: LocationIntegrityReason) => {
   switch (reason) {
     case 'mock_location_detected':
       return { text: 'Mock location provider detected', icon: 'alert-circle' as const };
-    case 'high_speed':
-      return { text: 'Speed over 80 km/h', icon: 'speedometer' as const };
     case 'teleportation':
       return { text: '2 km+ jump in under 90 seconds', icon: 'location' as const };
-    case 'impossible_acceleration':
-      return { text: 'Impossible acceleration detected', icon: 'flash' as const };
     case 'unnatural_velocity_curve':
       return { text: 'Unnatural velocity pattern', icon: 'trending-up' as const };
     case 'outside_working_area':
@@ -71,6 +67,7 @@ export default function FlagsScreen({ bottomInset = 40, locationIntegrity }: Fla
   const isYellowFlag = flagLevel === 'yellow';
   const isRedFlag = flagLevel === 'red';
   const isGreenFlag = flagLevel === 'green';
+  const checksLeft = Math.max(0, 5 - locationIntegrity.consecutiveInnerRadiusPoints);
   // Sort history by most recent first
   const sortedHistory = [...locationIntegrity.history].reverse();
 
@@ -120,6 +117,29 @@ export default function FlagsScreen({ bottomInset = 40, locationIntegrity }: Fla
             <Text style={styles.countValue}>{locationIntegrity.redFlagCount}</Text>
             <Text style={styles.countLabel}>working-area breaches detected in this session</Text>
           </View>
+
+          {(isRedFlag || isGreenFlag) && (
+            <View style={styles.recoveryRow}>
+              <Text style={styles.recoveryLabel}>Recovery Progress</Text>
+              <Text style={styles.recoveryText}>
+                {locationIntegrity.consecutiveInnerRadiusPoints} / 5 checks completed
+              </Text>
+              <View style={styles.progressBar}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    {
+                      width: `${(locationIntegrity.consecutiveInnerRadiusPoints / 5) * 100}%`,
+                      backgroundColor: isGreenFlag ? '#86EFAC' : '#FCA5A5',
+                    },
+                  ]}
+                />
+              </View>
+              <Text style={styles.checksLeft}>
+                {checksLeft === 0 ? '✓ Fully recovered' : `${checksLeft} check${checksLeft !== 1 ? 's' : ''} remaining`}
+              </Text>
+            </View>
+          )}
 
           <Text style={styles.summary}>{locationIntegrity.statusText}</Text>
           <Text style={styles.meta}>Last checked: {formatDetectionTime(locationIntegrity.lastCheckedAt ?? Date.now())}</Text>
@@ -247,6 +267,44 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 4,
     lineHeight: 18,
+  },
+  recoveryRow: {
+    marginVertical: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderTopColor: '#2A3649',
+    borderBottomColor: '#2A3649',
+  },
+  recoveryLabel: {
+    color: '#8FAECC',
+    fontSize: 11,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  recoveryText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  progressBar: {
+    height: 6,
+    backgroundColor: '#1C2432',
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 8,
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  checksLeft: {
+    color: '#D1D5DB',
+    fontSize: 12,
+    fontWeight: '500',
   },
   summary: {
     color: '#D1D5DB',

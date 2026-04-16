@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, View, Text, TouchableOpacity, StyleSheet, Modal,
-  StatusBar, ScrollView, RefreshControl, ActivityIndicator, Switch,
+  StatusBar, ScrollView, RefreshControl, ActivityIndicator, Pressable,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -9,6 +11,13 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import Animated, {
+  interpolate,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { getIncompleteProfileFields, isProfileComplete, signOut } from '../services/auth.service';
@@ -93,6 +102,88 @@ const startOfDay = (date: Date) => {
   const next = new Date(date);
   next.setHours(0, 0, 0, 0);
   return next;
+};
+
+type AnimatedAutoRenewSwitchProps = {
+  value: boolean;
+  onValueChange: (nextValue: boolean) => void;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  duration?: number;
+  trackColors?: { on: string; off: string };
+  thumbColors?: { on: string; off: string };
+};
+
+const AnimatedAutoRenewSwitch = ({
+  value,
+  onValueChange,
+  disabled = false,
+  style,
+  duration = 400,
+  trackColors = { on: '#00E5A0', off: '#304255' },
+  thumbColors = { on: '#0A0A0F', off: '#E5E7EB' },
+}: AnimatedAutoRenewSwitchProps) => {
+  const progress = useSharedValue(value ? 1 : 0);
+  const trackHeight = useSharedValue(0);
+  const trackWidth = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withTiming(value ? 1 : 0, { duration });
+  }, [duration, progress, value]);
+
+  const trackAnimatedStyle = useAnimatedStyle(() => {
+    const backgroundColor = interpolateColor(
+      progress.value,
+      [0, 1],
+      [trackColors.off, trackColors.on],
+    );
+
+    return {
+      backgroundColor,
+      borderRadius: trackHeight.value / 2,
+      opacity: disabled ? 0.65 : 1,
+    };
+  }, [disabled, trackColors.off, trackColors.on]);
+
+  const thumbAnimatedStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(
+      progress.value,
+      [0, 1],
+      [0, Math.max(0, trackWidth.value - trackHeight.value)],
+    );
+
+    const backgroundColor = interpolateColor(
+      progress.value,
+      [0, 1],
+      [thumbColors.off, thumbColors.on],
+    );
+
+    return {
+      transform: [{ translateX }],
+      borderRadius: trackHeight.value / 2,
+      backgroundColor,
+    };
+  }, [thumbColors.off, thumbColors.on]);
+
+  return (
+    <Pressable
+      onPress={() => onValueChange(!value)}
+      disabled={disabled}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value, disabled }}
+      hitSlop={6}
+    >
+      <Animated.View
+        onLayout={(event) => {
+          trackHeight.value = event.nativeEvent.layout.height;
+          trackWidth.value = event.nativeEvent.layout.width;
+        }}
+        style={[styles.autoRenewSwitchTrack, style, trackAnimatedStyle]}
+      >
+        <Animated.View style={[styles.autoRenewSwitchThumb, thumbAnimatedStyle]} />
+      </Animated.View>
+    </Pressable>
+  );
 };
 
 export default function HomeScreen({
@@ -859,15 +950,12 @@ export default function HomeScreen({
                   </Text>
                 </View>
 
-                <Switch
+                <AnimatedAutoRenewSwitch
                   value={autoRenewEnabled}
-                  onValueChange={(value) => {
-                    void handleToggleAutoRenew(value);
+                  onValueChange={(nextValue) => {
+                    void handleToggleAutoRenew(nextValue);
                   }}
                   disabled={updatingAutoRenew}
-                  trackColor={{ false: '#304255', true: '#00E5A0' }}
-                  thumbColor={autoRenewEnabled ? '#0A0A0F' : '#E5E7EB'}
-                  ios_backgroundColor="#304255"
                 />
               </View>
             </View>
@@ -947,15 +1035,12 @@ export default function HomeScreen({
                   </Text>
                 </View>
 
-                <Switch
+                <AnimatedAutoRenewSwitch
                   value={false}
-                  onValueChange={(value) => {
-                    void handleToggleAutoRenew(value);
+                  onValueChange={(nextValue) => {
+                    void handleToggleAutoRenew(nextValue);
                   }}
                   disabled
-                  trackColor={{ false: '#304255', true: '#00E5A0' }}
-                  thumbColor="#E5E7EB"
-                  ios_backgroundColor="#304255"
                 />
               </View>
             </View>
@@ -1499,6 +1584,17 @@ const styles = StyleSheet.create({
     color: '#9FB8D3',
     fontSize: 12,
     lineHeight: 18,
+  },
+  autoRenewSwitchTrack: {
+    width: 52,
+    height: 32,
+    padding: 3,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  autoRenewSwitchThumb: {
+    height: '100%',
+    aspectRatio: 1,
   },
 
   policyCard: {

@@ -4,9 +4,7 @@ import * as Location from 'expo-location';
 
 export type LocationIntegrityReason =
   | 'mock_location_detected'
-  | 'high_speed'
   | 'teleportation'
-  | 'impossible_acceleration'
   | 'unnatural_velocity_curve'
   | 'outside_working_area'
   | 'permission_denied'
@@ -43,16 +41,17 @@ export type LocationIntegrityState = {
   history: FlagHistoryEntry[];
   redFlagDetectedAt: number | null;
   normalizedAfterRedAt: number | null;
+  consecutiveInnerRadiusPoints: number;
 };
 
 const EARTH_RADIUS_KM = 6371;
 export const WORKING_AREA_RADIUS_KM = 25;
+const INNER_RADIUS_KM = 10;
+const DURATION_CHECK_GPS_POINTS = 5;
 const MAX_SAMPLE_HISTORY = 6;
 const MAX_SPEED_HISTORY = 8;
-const MAX_URBAN_DELIVERY_SPEED_KMH = 80;
 const TELEPORT_DISTANCE_KM = 2;
 const TELEPORT_WINDOW_SECONDS = 90;
-const MAX_ALLOWED_ACCELERATION_MS2 = 6.5;
 const GREEN_FLAG_RECOVERY_WINDOW_MS = 60 * 1000; // 1 minute of clean GPS after red
 export const WORKING_AREA_CENTER = {
   // Whitefield, Bengaluru
@@ -62,9 +61,7 @@ export const WORKING_AREA_CENTER = {
 
 const REASON_TEXT: Record<LocationIntegrityReason, string> = {
   mock_location_detected: 'Mock location provider detected',
-  high_speed: 'Speed crossed 80 km/h',
   teleportation: 'Detected 2 km+ jump in under 90 seconds',
-  impossible_acceleration: 'Acceleration pattern is unrealistic',
   unnatural_velocity_curve: 'Velocity curve looks unnatural',
   outside_working_area: 'Outside 25 km working area',
   permission_denied: 'Location permission denied',
@@ -91,8 +88,6 @@ const calculateDistanceKm = (
 
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(root));
 };
-
-const kmhToMs = (kmh: number) => kmh / 3.6;
 
 const hasUnnaturalVelocityCurve = (speedsKmh: number[]) => {
   if (speedsKmh.length < 4) {
@@ -139,6 +134,15 @@ export const isWithinWorkingAreaRadius = (latitude: number, longitude: number) =
   return distanceFromWorkingAreaKm <= WORKING_AREA_RADIUS_KM;
 };
 
+const isWithinInnerRadius = (latitude: number, longitude: number) => {
+  const distanceFromWorkingAreaKm = calculateDistanceKm(
+    { latitude, longitude },
+    WORKING_AREA_CENTER,
+  );
+
+  return distanceFromWorkingAreaKm <= INNER_RADIUS_KM;
+};
+
 const isMockedLocation = (location: Location.LocationObject) => {
   const coordsWithMocked = location.coords as Location.LocationObjectCoords & { mocked?: boolean };
   const locationWithMocked = location as Location.LocationObject & { mocked?: boolean };
@@ -147,9 +151,7 @@ const isMockedLocation = (location: Location.LocationObject) => {
 
 const isRedSeverityReason = (reason: LocationIntegrityReason) =>
   reason === 'mock_location_detected'
-  || reason === 'high_speed'
   || reason === 'teleportation'
-  || reason === 'impossible_acceleration'
   || reason === 'unnatural_velocity_curve';
 
 export const useLocationIntegrityMonitor = ({
@@ -168,11 +170,13 @@ export const useLocationIntegrityMonitor = ({
     history: [],
     redFlagDetectedAt: null,
     normalizedAfterRedAt: null,
+    consecutiveInnerRadiusPoints: 0,
   });
 
   const inFlightRef = useRef(false);
   const locationSamplesRef = useRef<LocationSample[]>([]);
   const speedHistoryRef = useRef<number[]>([]);
+  const consecutiveInnerRadiusPointsRef = useRef<number>(0);
   const hasCompletedInitialForegroundCheckRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const hasPromptedForGpsRef = useRef(false);
@@ -217,7 +221,9 @@ export const useLocationIntegrityMonitor = ({
         isChecking: false,
         redFlagDetectedAt: null,
         normalizedAfterRedAt: null,
+        consecutiveInnerRadiusPoints: 0,
       }));
+      consecutiveInnerRadiusPointsRef.current = 0;
       hasCompletedInitialForegroundCheckRef.current = false;
       hasPromptedForPermissionRef.current = false;
       hasPromptedForGpsRef.current = false;
@@ -262,6 +268,7 @@ export const useLocationIntegrityMonitor = ({
               lastCheckedAt: Date.now(),
               redFlagDetectedAt: null,
               normalizedAfterRedAt: null,
+              consecutiveInnerRadiusPoints: 0,
               history: current.history,
             }));
           }
@@ -289,6 +296,7 @@ export const useLocationIntegrityMonitor = ({
               lastCheckedAt: Date.now(),
               redFlagDetectedAt: null,
               normalizedAfterRedAt: null,
+              consecutiveInnerRadiusPoints: 0,
               history: current.history,
             }));
           }
@@ -337,23 +345,8 @@ export const useLocationIntegrityMonitor = ({
             const nextSpeedHistory = [...speedHistoryRef.current, speedKmh].slice(-MAX_SPEED_HISTORY);
             speedHistoryRef.current = nextSpeedHistory;
 
-            if (speedKmh > MAX_URBAN_DELIVERY_SPEED_KMH) {
-              reasons.push('high_speed');
-            }
-
             if (distanceKm >= TELEPORT_DISTANCE_KM && deltaSeconds < TELEPORT_WINDOW_SECONDS) {
               reasons.push('teleportation');
-            }
-
-            const previousSpeedKmh = nextSpeedHistory.length >= 2
-              ? nextSpeedHistory[nextSpeedHistory.length - 2]
-              : null;
-
-            if (previousSpeedKmh !== null) {
-              const accelerationMs2 = (kmhToMs(speedKmh) - kmhToMs(previousSpeedKmh)) / deltaSeconds;
-              if (Math.abs(accelerationMs2) > MAX_ALLOWED_ACCELERATION_MS2) {
-                reasons.push('impossible_acceleration');
-              }
             }
 
             if (hasUnnaturalVelocityCurve(nextSpeedHistory)) {
@@ -368,6 +361,11 @@ export const useLocationIntegrityMonitor = ({
         const hasSuddenChangeReason = uniqueReasons.some(isRedSeverityReason);
         const now = Date.now();
 
+        const isLocationWithinInnerRadius = isWithinInnerRadius(
+          currentLocation.coords.latitude,
+          currentLocation.coords.longitude,
+        );
+
         if (!cancelled) {
           setState((current) => {
             // Keep red active until rider is back inside working area,
@@ -375,36 +373,50 @@ export const useLocationIntegrityMonitor = ({
             let nextFlagLevel: LocationIntegrityFlagLevel;
             let nextRedFlagDetectedAt: number | null = current.redFlagDetectedAt;
             let nextNormalizedAfterRedAt: number | null = current.normalizedAfterRedAt;
+            let nextConsecutiveInnerRadiusPoints = consecutiveInnerRadiusPointsRef.current;
 
             if (hasSuddenChangeReason) {
               // New anomaly detected - reset to red
               nextFlagLevel = 'red';
-              if (current.flagLevel !== 'red') {
-                nextRedFlagDetectedAt = now; // Start persistence timer
-                nextNormalizedAfterRedAt = null; // Clear recovery timer
-              }
-            } else if ((current.flagLevel === 'red' || current.flagLevel === 'green') && nextRedFlagDetectedAt !== null) {
-              if (isOutsideWorkingArea) {
-                // User is still outside 25km radius: keep hard red.
-                nextFlagLevel = 'red';
-                nextNormalizedAfterRedAt = null;
-              } else if (nextNormalizedAfterRedAt === null) {
-                // First clean in-radius check after red.
-                nextNormalizedAfterRedAt = now;
-                nextFlagLevel = 'red';
+              nextRedFlagDetectedAt = now; // Start persistence timer
+              nextNormalizedAfterRedAt = null; // Clear recovery timer
+              nextConsecutiveInnerRadiusPoints = 0; // Restart 5-check window
+            } else if (current.flagLevel === 'red' && nextRedFlagDetectedAt !== null) {
+              // Flag is already raised - advance recovery window by one GPS check.
+              nextConsecutiveInnerRadiusPoints = Math.min(
+                nextConsecutiveInnerRadiusPoints + 1,
+                DURATION_CHECK_GPS_POINTS,
+              );
+
+              if (nextConsecutiveInnerRadiusPoints >= DURATION_CHECK_GPS_POINTS) {
+                // At the 5th check, clear to green only if location is within 10 km.
+                if (isLocationWithinInnerRadius) {
+                  nextFlagLevel = 'green';
+                  nextRedFlagDetectedAt = null;
+                  nextNormalizedAfterRedAt = null;
+                  nextConsecutiveInnerRadiusPoints = DURATION_CHECK_GPS_POINTS;
+                } else {
+                  // 5 checks completed but still outside 10 km: restart recovery window.
+                  nextFlagLevel = 'red';
+                  nextConsecutiveInnerRadiusPoints = 0;
+                }
               } else {
-                const timeSinceNormalization = now - nextNormalizedAfterRedAt;
-                nextFlagLevel = timeSinceNormalization >= GREEN_FLAG_RECOVERY_WINDOW_MS ? 'green' : 'red';
+                // Continue counting checks until the 5th one.
+                nextFlagLevel = 'red';
               }
             } else if (uniqueReasons.includes('outside_working_area')) {
               nextFlagLevel = 'yellow';
               nextRedFlagDetectedAt = null; // Clear red flag persistence when downgrading
               nextNormalizedAfterRedAt = null; // Clear recovery timer
+              nextConsecutiveInnerRadiusPoints = 0;
             } else {
               nextFlagLevel = 'none';
               nextRedFlagDetectedAt = null; // Clear red flag persistence when clearing
               nextNormalizedAfterRedAt = null; // Clear recovery timer
+              nextConsecutiveInnerRadiusPoints = 0;
             }
+
+            consecutiveInnerRadiusPointsRef.current = nextConsecutiveInnerRadiusPoints;
 
             const newHistory = [...current.history];
             const newAnomalyReasons = uniqueReasons.filter((reason) => !current.reasons.includes(reason));
@@ -413,9 +425,6 @@ export const useLocationIntegrityMonitor = ({
             });
 
             const redSeverityNewReasons = newAnomalyReasons.filter(isRedSeverityReason);
-
-            const shouldIncreaseOutsideAfterRed = current.flagLevel === 'red' && isOutsideWorkingArea;
-            const additionalCount = shouldIncreaseOutsideAfterRed ? 1 : 0;
 
             return {
               ...current,
@@ -431,10 +440,11 @@ export const useLocationIntegrityMonitor = ({
                     ? 'GPS normal - rider back in working area'
                     : 'GPS normal',
               lastCheckedAt: now,
-              redFlagCount: current.redFlagCount + redSeverityNewReasons.length + additionalCount,
+              redFlagCount: current.redFlagCount + redSeverityNewReasons.length,
               history: newHistory,
               redFlagDetectedAt: nextRedFlagDetectedAt,
               normalizedAfterRedAt: nextNormalizedAfterRedAt,
+              consecutiveInnerRadiusPoints: nextConsecutiveInnerRadiusPoints,
             };
           });
         }
@@ -450,6 +460,7 @@ export const useLocationIntegrityMonitor = ({
             lastCheckedAt: Date.now(),
             redFlagDetectedAt: null,
             normalizedAfterRedAt: null,
+            consecutiveInnerRadiusPoints: 0,
             history: current.history,
           }));
         }
