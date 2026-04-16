@@ -1,8 +1,12 @@
 import 'dotenv/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { getRequiredEnv } from './config/env';
 
 async function bootstrap() {
+  getRequiredEnv('DATABASE_URL');
+  getRequiredEnv('JWT_SECRET');
+
   const app = await NestFactory.create(AppModule, {
     cors: true,
   });

@@ -1,223 +1,84 @@
 # QuickShield
 
-- **Team**: 3Three
-- **Github**: https://github.com/Ronit675/QuickShield
-- **Video Link**: https://www.loom.com/share/25bde692b6c443fba2ac546310d0743a
+QuickShield is a monorepo prototype for a parametric insurance product aimed at gig-delivery riders. The current repository contains a working mobile app, a NestJS backend, and a Python ML microservice, but several rider-income and disruption flows are still backed by mock data.
 
-## Overview
+## Repository layout
 
-QuickShield is an AI-enabled parametric insurance platform designed to protect gig workers from income loss caused by external disruptions such as heavy rain, app outages, and local zone closures.
+- `QuickShield/`: Expo Router mobile app
+- `Backend/`: NestJS API with Prisma/PostgreSQL
+- `ml-service/`: FastAPI risk-scoring service
 
-The product is built for q-commerce riders who depend on predictable peak-hour earnings. Instead of traditional claims processing, the platform uses verified external signals to detect disruption events and trigger proportional payouts automatically.
-
-## Problem Statement
-
-Q-commerce riders working for platforms such as Zepto, Blinkit, and similar services operate in narrow delivery windows and highly localized service zones. Their weekly income can fall sharply when external events interrupt deliveries.
-
-Common disruption scenarios include:
-
-- Heavy rain or waterlogging during the monsoon season, causing order delays or zone shutdowns.
-- Local curfews, civic restrictions, or market closures that instantly reduce order flow.
-- Platform outages or service interruptions that temporarily prevent riders from receiving or completing orders.
-
-A rider typically works 7 to 10 hours per day, 6 days per week. Losing 2 to 3 peak hours in a single evening can result in meaningful income loss, often without any financial safety net.
-
-## Solution
-
-QuickShield provides parametric income protection for gig workers.
-
-- Coverage is limited to income loss caused by verified external disruptions.
-- Premiums are aligned to weekly payout cycles to match rider cash flow.
-- Claims are triggered automatically using external data, not manual claim filing.
-- Payouts are proportional to affected time slots rather than being based on full-day loss assumptions.
-
-## Core Product Principles
-
-- Scope: Covers income interruption from external disruptions only. It does not include health, accident, vehicle repair, or medical insurance.
-- Model: Uses weekly policy pricing based on expected risk, selected coverage, and rider earnings patterns.
-- Mechanism: Detects trigger events through weather, platform outage, civic, and platform activity data, then initiates automated claim logic.
-
-## Why Mobile-First?
-
-- Riders operate on smartphones during shifts
-- Real-time alerts and payouts require mobile notifications
-- GPS validation is easier via mobile devices
-
-## Tech Stack
-
-| Layer | Choice |
-| --- | --- |
-| Mobile App | React Native + TypeScript |
-| Backend | NestJS (Node.js + TypeScript) |
-| ORM / Database | Prisma + PostgreSQL |
-| Payments | Razorpay / Stripe / UPI sandbox |
-| External Data | Weather APIs, app outage signals, mock q-commerce platform APIs |
-
-## Solution Architecture
+## Architecture
 
 ```text
-React Native Mobile App <-> NestJS REST API
-                               |
-                               v
-                    PostgreSQL via Prisma ORM
-                               |
-                               v
-        Weather APIs | App Outage Signals | Mock Platform APIs | Payment Sandbox
+Expo mobile app -> NestJS API -> PostgreSQL
+                       |
+                       -> FastAPI ML service
 ```
 
-## Coverage Selection and Premium Model
+## Current implemented flow
 
-### 1. Earnings-Based Coverage Recommendation
+1. User signs in with Google or phone OTP.
+2. User selects platform and service zone.
+3. Backend stores a rider profile and computes coverage recommendations.
+4. Policy purchase calls the ML service for pricing inputs.
+5. The app can simulate rain-triggered claim credit using mock weather data.
 
-The platform estimates average rider earnings using the last 4 to 8 weeks of platform income data.
+## Important prototype limitations
 
-Example:
+- Platform connection currently generates mock earnings and working shifts.
+- Weather and rain-disruption monitoring use mock forecast data.
+- The dedicated claims and trigger services are not fully implemented yet.
+- ML training uses synthetic data rather than production historical data.
 
-- Average daily income: Rs 850
-- Recommended protection: Rs 750 per day
+## Setup
 
-The default recommendation protects roughly 80 to 90 percent of verified average earnings.
+### 1. Backend
 
-### 2. Rider-Controlled Coverage Range
-
-The rider can adjust the recommended coverage amount within predefined guardrails.
-
-- Minimum coverage: 60 percent of verified average income
-- Maximum coverage: 120 percent of verified average income
-
-These limits are designed to:
-
-- Keep the product meaningful at the lower bound
-- Reduce over-insurance and fraud exposure at the upper bound
-
-Example display:
-
-- Typical daily earnings: Rs 850
-- Recommended protection: Rs 750 per day
-- Allowed slider range: Rs 510 to Rs 1,020
-
-### 3. Dynamic Weekly Premium Formula
-
-Weekly premium is determined at policy creation and renewal using the formula below:
-
-```text
-Weekly Premium = Base Premium x Risk Factor x Coverage Factor
+```bash
+cd Backend
+cp .env.example .env
+npm install
+npm run dev
 ```
 
-Example for a rider in Bengaluru:
+Required backend env vars:
 
-- Base premium: Rs 35 per week at Rs 600 per day reference coverage
-- Coverage factor: 750 / 600 = 1.25
-- Risk factor: 1.2 for a high-risk weather week
-- Weekly premium: Rs 35 x 1.25 x 1.2 = Rs 52.50, rounded to Rs 53
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `GOOGLE_WEB_CLIENT_ID`
+- `ML_SERVICE_URL`
 
-### Premium Inputs
+### 2. ML service
 
-- Risk score: A value in the range `[0,1]` mapped into a risk factor range of approximately `[0.8,1.5]`
-- Coverage factor: Selected protection rate divided by reference rate
-- Zone risk: Historical weather, closure, and disruption frequency for a rider's service zone
-- Forecast risk: Predicted rain, or disruption probability in the next 7 days
-- Exposure: Declared weekly work pattern, such as 8 hours per day for 6 days
+```bash
+cd ml-service
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python train.py
+uvicorn main:app --reload --port 5001
+```
 
-## Parametric Trigger Design
+### 3. Mobile app
 
-The platform models disruptions at the time-slot level because q-commerce income is highly sensitive to peak delivery windows.
+```bash
+cd QuickShield
+cp .env.example .env
+npm install
+npx expo start
+```
 
-### Daily Time Slots
+Required mobile env vars:
 
-| Slot | Time | Sensitivity |
-| --- | --- | --- |
-| S1 | 6 AM to 10 AM | Morning rush |
-| S2 | 10 AM to 4 PM | Off-peak |
-| S3 | 4 PM to 8 PM | Evening peak |
-| S4 | 8 PM to 12 AM | Late night |
+- `EXPO_PUBLIC_API_URL`
+- `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
 
-### Automated Triggers
+## Verification
 
-| Trigger | Data Source | Threshold | Payout Logic |
-| --- | --- | --- | --- |
-| Heavy Rain | OpenWeatherMap | Greater than 25 mm/hr in zone | Affected slots |
-| App Outage | Platform status or order-flow signal | Order flow drops to zero during outage window | Affected slots |
-| Zone Closure | Mock civic or traffic API | Orders drop by more than 70 percent | Dark-zone payout |
-
-Example:
-
-If S3 is disrupted from 6 PM to 7 PM due to heavy rain, the rider receives a partial payout for 1 disrupted hour rather than a full-day payout.
-
-## Example Persona Scenario
-
-Ravi is a Zepto delivery partner in Bengaluru earning Rs 850 per day. On a rainy evening during the 6 PM to 8 PM peak slot, heavy rain greater than 25 mm per hour stops deliveries for 1 hour.
-
-QuickShield detects:
-
-- Rain trigger activated
-- Ravi active in zone
-
-The system then auto-triggers the payout:
-
-- Rs 750 per day coverage
-- Rs 93.75 per hour payout rate
-- Ravi gets Rs 93.75 instantly
-
-## AI Flow in Workflow
-
-- Rider earnings, zone history, and forecast data are collected
-- AI model calculates risk score -> feeds premium engine
-- Premium engine computes the weekly premium and coverage recommendation
-- Trigger services monitor live disruption signals
-- Claims workflow validates eligibility and simulates or initiates payout
-
-## AI and ML Roadmap
-
-### Dynamic Pricing
-
-Phase 2 introduces machine learning for more accurate pricing.
-
-- Model candidate: XGBoost
-- Inputs: zone history, weather forecast, and slot-level disruption patterns
-- Output: expected loss for the next policy week, used to refine the risk factor
-
-### Fraud Detection
-
-Phase 3 introduces automated fraud screening.
-
-- Anomaly detection for claim patterns that diverge significantly from peer behavior
-- GPS validation to confirm rider presence in the affected micro-zone
-- Cohort-based risk checks for abnormal frequency or payout size
-
-## Key User Flows
-
-### 1. Onboarding
-
-- Rider connects a delivery platform account
-- The system pulls recent earnings data
-- Recommended daily protection is pre-filled
-- The rider adjusts coverage within allowed limits
-- Weekly premium is calculated and paid through UPI
-
-### 2. Zero-Touch Claims
-
-- A disruption event is detected automatically
-- The claim engine validates trigger conditions
-- GPS and event data confirm rider eligibility
-- A proportional payout is initiated without manual claim submission
-
-### 3. Weekly Renewal
-
-- The rider receives an updated protection and premium estimate for the next week
-- Forecasted risk affects the renewal price
-- Auto-renew can be enabled for continuous coverage
-
-## Phase 1 Prototype Scope
-
-- Static premium calculator
-- Mock trigger simulation
-- UI wireframes for mobile
-- No real-time payouts yet, only simulated payout flows
-
-## Roadmap
-
-## Development Plan (Phase 1 -> Phase 2)
+- Mobile lint: `cd QuickShield && npm run lint`
+- Backend typecheck: `cd Backend && npx tsc --noEmit`
+- ML syntax check: `cd ml-service && python3 -m py_compile main.py train.py`
 
 Week 1-2:
 

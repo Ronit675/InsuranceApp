@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { DEFAULT_LANGUAGE, LANGUAGE_NAMES, LANGUAGES, translations, type LanguageCode } from './translations';
 
@@ -42,7 +42,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     void AsyncStorage.setItem(LANGUAGE_STORAGE_KEY, nextLanguage);
   };
 
-  const t = (path: string, vars?: Record<string, string>) => {
+  const t = useCallback((path: string, vars?: Record<string, string>) => {
     const keys = path.split('.');
     let value: unknown = translations[language];
 
@@ -66,7 +66,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return Object.entries(vars).reduce((acc, [varKey, varValue]) => {
       return acc.replace(new RegExp(`{{\\s*${varKey}\\s*}}`, 'g'), varValue);
     }, value);
-  };
+  }, [language]);
 
   const contextValue = useMemo<LanguageContextValue>(() => ({
     language,
@@ -75,7 +75,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     availableLanguages: LANGUAGES,
     languageNames: LANGUAGE_NAMES,
     isLanguageReady,
-  }), [isLanguageReady, language]);
+  }), [isLanguageReady, language, t]);
 
   return (
     <LanguageContext.Provider value={contextValue}>

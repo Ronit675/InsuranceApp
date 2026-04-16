@@ -13,8 +13,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import HistoryScreen from './HistoryScreen';
 import HomeScreen from './Homescreen';
+import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../directory/Languagecontext';
-import { useLocationIntegrityMonitor } from '../hooks/useLocationIntegrityMonitor';
+import {
+  useLocationIntegrityMonitor,
+  type LocationIntegrityState,
+} from '../hooks/useLocationIntegrityMonitor';
+import {
+  fetchPersistedAppState,
+  mapPersistedAppStateToLocationIntegrity,
+  syncPersistedAppState,
+} from '../services/app-state.service';
 import { startBackgroundLocationTracking } from '../services/location';
 const FlagsScreen = React.lazy(() => import('./FlagsScreen'));
 
@@ -27,19 +36,26 @@ type TabDefinition = {
 };
 
 export default function MainTabsScreen() {
+  const { user } = useAuth();
   const { t } = useLanguage();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [isClaimsFeatureDisabled, setIsClaimsFeatureDisabled] = useState(false);
   const [selectedReturnDateLabel, setSelectedReturnDateLabel] = useState<string | null>(null);
+  const [outOfTownSinceMs, setOutOfTownSinceMs] = useState<number | null>(null);
   const [outOfTownUntilDate, setOutOfTownUntilDate] = useState<Date | null>(null);
   const [flagCounterOffset, setFlagCounterOffset] = useState(0);
   const [forceGreenUntilMs, setForceGreenUntilMs] = useState<number | null>(null);
+  const [appBackToNormalAtMs, setAppBackToNormalAtMs] = useState<number | null>(null);
+  const [hydratedLocationIntegrity, setHydratedLocationIntegrity] =
+    useState<Partial<LocationIntegrityState> | null>(null);
+  const [isAppStateReady, setIsAppStateReady] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const locationIntegrity = useLocationIntegrityMonitor({
-    enabled: true,
+    enabled: isAppStateReady,
     pollIntervalMs: 60_000,
+    hydratedState: hydratedLocationIntegrity,
   });
   const TABS: TabDefinition[] = [
     { key: 'home', label: t('tabs.home'), icon: 'home' },
@@ -79,6 +95,73 @@ export default function MainTabsScreen() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const loadPersistedAppState = async () => {
+      if (!user?.id) {
+        if (!cancelled) {
+          setHydratedLocationIntegrity(null);
+          setIsClaimsFeatureDisabled(false);
+          setSelectedReturnDateLabel(null);
+          setOutOfTownSinceMs(null);
+          setOutOfTownUntilDate(null);
+          setFlagCounterOffset(0);
+          setForceGreenUntilMs(null);
+          setAppBackToNormalAtMs(null);
+          setIsAppStateReady(true);
+        }
+        return;
+      }
+
+      if (!cancelled) {
+        setIsAppStateReady(false);
+      }
+
+      try {
+        const appState = await fetchPersistedAppState();
+        if (cancelled) {
+          return;
+        }
+
+        setHydratedLocationIntegrity(mapPersistedAppStateToLocationIntegrity(appState));
+        setIsClaimsFeatureDisabled(appState.outOfStationActive);
+        setSelectedReturnDateLabel(appState.outOfStationReturnLabel);
+        setOutOfTownSinceMs(appState.outOfStationSince);
+        setOutOfTownUntilDate(appState.outOfStationUntil ? new Date(appState.outOfStationUntil) : null);
+        setFlagCounterOffset(0);
+        setAppBackToNormalAtMs(appState.appBackToNormalAt);
+
+        if (appState.appBackToNormalAt && appState.appBackToNormalAt + 70_000 > Date.now()) {
+          setForceGreenUntilMs(appState.appBackToNormalAt + 70_000);
+        } else {
+          setForceGreenUntilMs(null);
+        }
+      } catch {
+        if (!cancelled) {
+          setHydratedLocationIntegrity(null);
+          setIsClaimsFeatureDisabled(false);
+          setSelectedReturnDateLabel(null);
+          setOutOfTownSinceMs(null);
+          setOutOfTownUntilDate(null);
+          setFlagCounterOffset(0);
+          setForceGreenUntilMs(null);
+          setAppBackToNormalAtMs(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsAppStateReady(true);
+        }
+      }
+    };
+
+    void loadPersistedAppState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!forceGreenUntilMs) {
       return;
     }
@@ -98,11 +181,14 @@ export default function MainTabsScreen() {
   }, [forceGreenUntilMs]);
 
   const handleImBackRecovered = useCallback(() => {
+    const resumedAt = Date.now();
     setFlagCounterOffset((previousOffset) => {
       const currentCount = locationIntegrity.redFlagCount + previousOffset;
       return currentCount > 0 ? previousOffset - 1 : previousOffset;
     });
-    setForceGreenUntilMs(Date.now() + 70_000);
+    setOutOfTownSinceMs(null);
+    setAppBackToNormalAtMs(resumedAt);
+    setForceGreenUntilMs(resumedAt + 70_000);
   }, [locationIntegrity.redFlagCount]);
 
   const adjustedRedFlagCount = Math.max(0, locationIntegrity.redFlagCount + flagCounterOffset);
@@ -111,6 +197,7 @@ export default function MainTabsScreen() {
     ? {
       ...locationIntegrity,
       isFlagged: false,
+      flagLevel: 'none' as const,
       reasons: [],
       statusText: 'GPS normal',
       redFlagCount: adjustedRedFlagCount,
@@ -119,6 +206,55 @@ export default function MainTabsScreen() {
       ...locationIntegrity,
       redFlagCount: adjustedRedFlagCount,
     };
+  const appStateSyncKey = JSON.stringify({
+    flagCount: adjustedRedFlagCount,
+    history: locationIntegrity.history,
+    currentFlagLevel: sharedLocationIntegrity.flagLevel,
+    currentReasons: sharedLocationIntegrity.reasons,
+    currentStatusText: sharedLocationIntegrity.statusText,
+    lastCheckedAt: sharedLocationIntegrity.lastCheckedAt,
+    redFlagDetectedAt: locationIntegrity.redFlagDetectedAt,
+    normalizedAfterRedAt: locationIntegrity.normalizedAfterRedAt,
+    outOfStationActive: isClaimsFeatureDisabled,
+    outOfStationSince: outOfTownSinceMs,
+    outOfStationUntil: outOfTownUntilDate?.getTime() ?? null,
+    outOfStationReturnLabel: selectedReturnDateLabel,
+    appBackToNormalAt: appBackToNormalAtMs,
+  });
+
+  useEffect(() => {
+    if (!user?.id || !isAppStateReady) {
+      return;
+    }
+
+    const syncTimeout = setTimeout(() => {
+      void syncPersistedAppState({
+        flagCount: adjustedRedFlagCount,
+        history: locationIntegrity.history,
+        currentFlagLevel: sharedLocationIntegrity.flagLevel,
+        currentReasons: sharedLocationIntegrity.reasons,
+        currentStatusText: sharedLocationIntegrity.statusText,
+        lastCheckedAt: sharedLocationIntegrity.lastCheckedAt,
+        redFlagDetectedAt: locationIntegrity.redFlagDetectedAt,
+        normalizedAfterRedAt: locationIntegrity.normalizedAfterRedAt,
+        outOfStationActive: isClaimsFeatureDisabled,
+        outOfStationSince: outOfTownSinceMs,
+        outOfStationUntil: outOfTownUntilDate?.getTime() ?? null,
+        outOfStationReturnLabel: selectedReturnDateLabel,
+        appBackToNormalAt: appBackToNormalAtMs,
+      }).catch(() => {
+        // Ignore sync failures and continue with the in-memory state.
+      });
+    }, 500);
+
+    return () => {
+      clearTimeout(syncTimeout);
+    };
+  }, [
+    appStateSyncKey,
+    isAppStateReady,
+    user?.id,
+  ]);
 
   const baseTabHeight = width >= 768 ? 84 : 74;
   const contentBottomInset = baseTabHeight + Math.max(insets.bottom, 12) + 20;
@@ -137,6 +273,8 @@ export default function MainTabsScreen() {
             setIsClaimsFeatureDisabled={setIsClaimsFeatureDisabled}
             selectedReturnDateLabel={selectedReturnDateLabel}
             setSelectedReturnDateLabel={setSelectedReturnDateLabel}
+            outOfTownSinceMs={outOfTownSinceMs}
+            setOutOfTownSinceMs={setOutOfTownSinceMs}
             outOfTownUntilDate={outOfTownUntilDate}
             setOutOfTownUntilDate={setOutOfTownUntilDate}
             onImBackRecovered={handleImBackRecovered}
@@ -170,6 +308,8 @@ export default function MainTabsScreen() {
             setIsClaimsFeatureDisabled={setIsClaimsFeatureDisabled}
             selectedReturnDateLabel={selectedReturnDateLabel}
             setSelectedReturnDateLabel={setSelectedReturnDateLabel}
+            outOfTownSinceMs={outOfTownSinceMs}
+            setOutOfTownSinceMs={setOutOfTownSinceMs}
             outOfTownUntilDate={outOfTownUntilDate}
             setOutOfTownUntilDate={setOutOfTownUntilDate}
             onImBackRecovered={handleImBackRecovered}

@@ -1,50 +1,60 @@
-# Welcome to your Expo app 👋
+# QuickShield Mobile App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo Router mobile client for the QuickShield prototype.
 
-## Get started
+## Prerequisites
 
-1. Install dependencies
+- Node.js 20+
+- npm
+- Expo development environment
+- Backend running on port `3000`
 
-   ```bash
-   npm install
-   ```
+## Environment
 
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+Copy `.env.example` to `.env` and fill in the values:
 
 ```bash
-npm run reset-project
+cp .env.example .env
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+Required variables:
 
-## Learn more
+- `EXPO_PUBLIC_API_URL`
+- `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
 
-To learn more about developing your project with Expo, look at the following resources:
+Notes:
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+- In development, `EXPO_PUBLIC_API_URL` can be omitted and the app will infer the Expo host machine URL.
+- Google Sign-In requires a development build. It will not complete inside Expo Go.
 
-## Join the community
+## Install and run
 
-Join our community of developers creating universal apps.
+```bash
+npm install
+npx expo start
+```
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Useful scripts:
+
+- `npm run android`
+- `npm run ios`
+- `npm run web`
+- `npm run lint`
+
+## App structure
+
+- `app/`: Expo Router entrypoints and routes
+- `app/(tabs)/src/screens/`: screen implementations
+- `app/(tabs)/src/services/`: API, auth, weather, location, and policy helpers
+- `app/(tabs)/src/context/`: auth state
+- `app/(tabs)/src/directory/`: language state and translations
+
+## Current prototype scope
+
+- Google and phone OTP authentication
+- Rider onboarding for platform and service zone
+- Premium recommendation and policy purchase
+- Policy history and auto-renew toggle
+- Mock weather-driven rain disruption tracking
+
+The weather, rider-platform connection, and rain-claim flows are still prototype flows backed by mock data.

@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { getOptionalEnv } from '../config/env';
 
 export interface RiskPrediction {
   F: number;           // forecast risk    0–1
@@ -43,7 +44,7 @@ const PLATFORM_APP_RISK: Record<string, number> = {
 @Injectable()
 export class MlService {
   private readonly logger = new Logger(MlService.name);
-  private readonly ML_URL = process.env.ML_SERVICE_URL ?? 'http://localhost:5001';
+  private readonly ML_URL = getOptionalEnv('ML_SERVICE_URL') ?? 'http://127.0.0.1:5001';
 
   private clamp(value: number, min: number, max: number): number {
     return Math.max(min, Math.min(max, value));
@@ -82,7 +83,7 @@ export class MlService {
     historicalDisruptionRate: number;
     civicFlag: number;
     month: number;        // 1–12, derived from current date in PremiumService
-    dayOfWeek: number;    // 0=Mon … 6=Sun, derived from current date in PremiumService
+    dayOfWeek: number;    // 0=Sun … 6=Sat, derived from current date in PremiumService
   }): Promise<RiskPrediction> {
     try {
       const { data } = await axios.post<MlServiceResponse>(

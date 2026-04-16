@@ -6,8 +6,9 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from '../Jwt/jwt.strategy';
 import { JwtAuthGuard } from '../Jwt/jwtauth.guard';
 import { PrismaModule } from '../prisma/prisma.module';
+import { getRequiredEnv } from '../config/env';
 
-const jwtSecret = process.env.JWT_SECRET ?? 'dev-jwt-secret';
+const jwtSecret = getRequiredEnv('JWT_SECRET');
 
 @Module({
   imports: [

@@ -66,7 +66,7 @@ export class PremiumService {
     // 2. Derive temporal context from the current date (single source of truth).
     const now        = new Date();
     const month      = now.getMonth() + 1; // 1–12
-    const dayOfWeek  = now.getDay();        // 0=Sun … 6=Sat (matches Python weekday convention)
+    const dayOfWeek  = now.getDay();        // 0=Sun … 6=Sat
 
     const riderContext: RiderContext = {
       avgDailyIncome: profile.avgDailyIncome,

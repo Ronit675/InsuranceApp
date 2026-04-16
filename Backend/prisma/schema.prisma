@@ -11,7 +11,7 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = "postgresql://neondb_owner:npg_DEOjMJ6xyUm0@ep-silent-base-a1wdt6dx.ap-southeast-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -25,6 +25,7 @@ model User {
   authProvider String      // "google" | "apple" | "phone"
   createdAt    DateTime      @default(now())
   profile      RiderProfile?
+  appState     RiderAppState?
   policies     Policy[]
 }
 
@@ -44,6 +45,39 @@ model RiderProfile {
   platformConnectionStatus String   @default("not_connected") // "not_connected" | "verified" | "not_found"
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+}
+
+model RiderAppState {
+  id                     String      @id @default(uuid())
+  userId                 String      @unique
+  user                   User        @relation(fields: [userId], references: [id])
+  flagCount              Int         @default(0)
+  currentFlagLevel       String      @default("none")
+  currentReasons         String[]    @default([])
+  currentStatusText      String      @default("GPS check inactive")
+  lastCheckedAt          DateTime?
+  redFlagDetectedAt      DateTime?
+  normalizedAfterRedAt   DateTime?
+  outOfStationActive     Boolean     @default(false)
+  outOfStationSince      DateTime?
+  outOfStationUntil      DateTime?
+  outOfStationReturnLabel String?
+  appBackToNormalAt      DateTime?
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
+  flagEvents             FlagEvent[]
+}
+
+model FlagEvent {
+  id         String        @id @default(uuid())
+  appStateId String
+  appState   RiderAppState @relation(fields: [appStateId], references: [id])
+  reason     String
+  detectedAt DateTime
+  createdAt  DateTime      @default(now())
+
+  @@unique([appStateId, reason, detectedAt])
+  @@index([appStateId, detectedAt])
 }
 
 model Policy {

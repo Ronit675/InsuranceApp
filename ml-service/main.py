@@ -69,6 +69,9 @@ def compute_risk_multiplier(composite: float) -> float:
 def monsoon_intensity(month: int) -> float:
     return max(0.0, float(np.sin((month - 3) * np.pi / 6)))
 
+def get_js_day_of_week(date: datetime) -> int:
+    return (date.weekday() + 1) % 7
+
 def static_fallback(req: RiskRequest, month: int) -> RiskResponse:
     """Used when zone/platform is unknown or models not loaded."""
     Z = ZONE_RISK_MAP.get(req.zone_id, 0.35)
@@ -102,8 +105,8 @@ def model_info():
 @app.post("/predict/risk", response_model=RiskResponse)
 def predict_risk(req: RiskRequest):
     now = datetime.now()
-    month       = req.month       or now.month
-    day_of_week = req.day_of_week or now.weekday()
+    month = req.month if req.month is not None else now.month
+    day_of_week = req.day_of_week if req.day_of_week is not None else get_js_day_of_week(now)
 
     # Fallback if unknown zone or platform
     if req.zone_id not in (META.get('zones', []) if LOADED else []):

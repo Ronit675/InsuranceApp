@@ -1,28 +1,8 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
+import { getConfiguredApiBaseUrl } from './runtime-config';
 
-const getDevBaseUrl = () => {
-  const envUrl = process.env.EXPO_PUBLIC_API_URL;
-  if (envUrl) {
-    return envUrl;
-  }
-
-  const possibleHostUri =
-    Constants.expoConfig?.hostUri
-    ?? (Constants as typeof Constants & {
-      expoGoConfig?: { debuggerHost?: string };
-      manifest2?: { extra?: { expoClient?: { hostUri?: string } } };
-    }).expoGoConfig?.debuggerHost
-    ?? (Constants as typeof Constants & {
-      manifest2?: { extra?: { expoClient?: { hostUri?: string } } };
-    }).manifest2?.extra?.expoClient?.hostUri;
-
-  const host = possibleHostUri?.split(':')[0];
-  return host ? `http://${host}:3000` : 'http://localhost:3000';
-};
-
-const BASE_URL = __DEV__ ? getDevBaseUrl() : 'https://your-prod-url.com';
+const BASE_URL = getConfiguredApiBaseUrl();
 
 const api = axios.create({ baseURL: BASE_URL });
 

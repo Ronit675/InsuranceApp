@@ -198,7 +198,7 @@ You can test all endpoints directly from the browser without curl.
 | `historical_disruption_rate` | float | No (default 0.3) | Zone's past 8-week disruption rate (0–1). Stored in `RiderProfile.zoneRiskScore`. |
 | `civic_flag` | int | No (default 0) | `1` if a curfew or strike is active today |
 | `month` | int | No | 1–12. Derived from `new Date()` in NestJS if omitted. |
-| `day_of_week` | int | No | 0 (Sun) – 6 (Sat). Derived from `new Date()` in NestJS if omitted. |
+| `day_of_week` | int | No | 0 (Sun) – 6 (Sat). Derived from `new Date().getDay()` in NestJS if omitted. |
 
 ---
 
