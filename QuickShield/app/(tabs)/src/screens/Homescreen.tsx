@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert, View, Text, TouchableOpacity, StyleSheet, Modal,
-  StatusBar, ScrollView, RefreshControl, ActivityIndicator, Switch,
+  StatusBar, ScrollView, RefreshControl, ActivityIndicator, Pressable,
+  type StyleProp,
+  type ViewStyle,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -9,6 +11,13 @@ import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/dat
 import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
+import Animated, {
+  interpolate,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { getIncompleteProfileFields, isProfileComplete, signOut } from '../services/auth.service';
@@ -42,6 +51,8 @@ type HomeScreenProps = {
   outOfTownUntilDate: Date | null;
   setOutOfTownUntilDate: React.Dispatch<React.SetStateAction<Date | null>>;
   onImBackRecovered?: () => void;
+  onYellowFlagNoOutOfTown?: () => void;
+  onFlagQnaPendingChange?: (isPending: boolean) => void;
 };
 
 const TRIGGER_LABELS: Record<string, string> = {
@@ -89,10 +100,104 @@ const formatDateOptionLabel = (date: Date) => date.toLocaleDateString('en-GB', {
   month: '2-digit',
 });
 
+const formatTimeLabel = (date: Date) => date.toLocaleTimeString('en-IN', {
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: true,
+});
+
 const startOfDay = (date: Date) => {
   const next = new Date(date);
   next.setHours(0, 0, 0, 0);
   return next;
+};
+
+const endOfDay = (date: Date) => {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+};
+
+type AnimatedAutoRenewSwitchProps = {
+  value: boolean;
+  onValueChange: (nextValue: boolean) => void;
+  disabled?: boolean;
+  style?: StyleProp<ViewStyle>;
+  duration?: number;
+  trackColors?: { on: string; off: string };
+  thumbColors?: { on: string; off: string };
+};
+
+const AnimatedAutoRenewSwitch = ({
+  value,
+  onValueChange,
+  disabled = false,
+  style,
+  duration = 400,
+  trackColors = { on: '#00E5A0', off: '#304255' },
+  thumbColors = { on: '#0A0A0F', off: '#E5E7EB' },
+}: AnimatedAutoRenewSwitchProps) => {
+  const progress = useSharedValue(value ? 1 : 0);
+  const trackHeight = useSharedValue(0);
+  const trackWidth = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withTiming(value ? 1 : 0, { duration });
+  }, [duration, progress, value]);
+
+  const trackAnimatedStyle = useAnimatedStyle(() => {
+    const backgroundColor = interpolateColor(
+      progress.value,
+      [0, 1],
+      [trackColors.off, trackColors.on],
+    );
+
+    return {
+      backgroundColor,
+      borderRadius: trackHeight.value / 2,
+      opacity: disabled ? 0.65 : 1,
+    };
+  }, [disabled, trackColors.off, trackColors.on]);
+
+  const thumbAnimatedStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(
+      progress.value,
+      [0, 1],
+      [0, Math.max(0, trackWidth.value - trackHeight.value)],
+    );
+
+    const backgroundColor = interpolateColor(
+      progress.value,
+      [0, 1],
+      [thumbColors.off, thumbColors.on],
+    );
+
+    return {
+      transform: [{ translateX }],
+      borderRadius: trackHeight.value / 2,
+      backgroundColor,
+    };
+  }, [thumbColors.off, thumbColors.on]);
+
+  return (
+    <Pressable
+      onPress={() => onValueChange(!value)}
+      disabled={disabled}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value, disabled }}
+      hitSlop={6}
+    >
+      <Animated.View
+        onLayout={(event) => {
+          trackHeight.value = event.nativeEvent.layout.height;
+          trackWidth.value = event.nativeEvent.layout.width;
+        }}
+        style={[styles.autoRenewSwitchTrack, style, trackAnimatedStyle]}
+      >
+        <Animated.View style={[styles.autoRenewSwitchThumb, thumbAnimatedStyle]} />
+      </Animated.View>
+    </Pressable>
+  );
 };
 
 export default function HomeScreen({
@@ -110,6 +215,8 @@ export default function HomeScreen({
   outOfTownUntilDate,
   setOutOfTownUntilDate,
   onImBackRecovered,
+  onYellowFlagNoOutOfTown,
+  onFlagQnaPendingChange,
 }: HomeScreenProps) {
   const { user, setUser } = useAuth();
   const { t } = useLanguage();
@@ -129,8 +236,14 @@ export default function HomeScreen({
   const [flagQnaAnswer, setFlagQnaAnswer] = useState<'yes' | 'no' | null>(null);
   const [flagQnaStep, setFlagQnaStep] = useState<'q1' | 'return_date'>('q1');
   const [showCustomDatePicker, setShowCustomDatePicker] = useState(false);
+  const [showTodayTimePicker, setShowTodayTimePicker] = useState(false);
+  const [pendingTodayReturnDate, setPendingTodayReturnDate] = useState<Date | null>(null);
   const [isCheckingImBack, setIsCheckingImBack] = useState(false);
   const hasAskedCurrentFlagRef = useRef(false);
+
+  useEffect(() => {
+    onFlagQnaPendingChange?.(showFlagQna);
+  }, [onFlagQnaPendingChange, showFlagQna]);
 
   const fetchPolicy = useCallback(async () => {
     try {
@@ -191,7 +304,7 @@ export default function HomeScreen({
       setMiniTrackedStartMs(null);
       setMiniWeatherSummary(
         outOfTownUntilDate
-          ? `Claims disabled until ${formatDateOptionLabel(outOfTownUntilDate)}. Tap I'm Back after returning to your working area.`
+          ? `Claims disabled until ${formatDateOptionLabel(outOfTownUntilDate)} ${formatTimeLabel(outOfTownUntilDate)}. Tap I'm Back after returning to your working area.`
           : "Claims feature is temporarily disabled. Tap I'm Back after returning to your working area.",
       );
       return;
@@ -270,10 +383,9 @@ export default function HomeScreen({
       return;
     }
 
-    const endOfSelectedDay = new Date(outOfTownUntilDate);
-    endOfSelectedDay.setHours(23, 59, 59, 999);
+    const holdUntil = outOfTownUntilDate.getTime();
 
-    if (Date.now() > endOfSelectedDay.getTime()) {
+    if (Date.now() > holdUntil) {
       setIsClaimsFeatureDisabled(false);
       setOutOfTownSinceMs(null);
       setOutOfTownUntilDate(null);
@@ -282,7 +394,7 @@ export default function HomeScreen({
     }
 
     const unlockInterval = setInterval(() => {
-      if (Date.now() > endOfSelectedDay.getTime()) {
+      if (Date.now() > holdUntil) {
         setIsClaimsFeatureDisabled(false);
         setOutOfTownSinceMs(null);
         setOutOfTownUntilDate(null);
@@ -319,6 +431,8 @@ export default function HomeScreen({
       setFlagQnaAnswer(null);
       setFlagQnaStep('q1');
       setShowCustomDatePicker(false);
+      setShowTodayTimePicker(false);
+      setPendingTodayReturnDate(null);
       return;
     }
 
@@ -329,8 +443,15 @@ export default function HomeScreen({
         setFlagQnaStep('q1');
         setSelectedReturnDateLabel(null);
         setShowCustomDatePicker(false);
+        setShowTodayTimePicker(false);
+        setPendingTodayReturnDate(null);
         setShowFlagQna(true);
       }
+      return;
+    }
+
+    // Keep QnA open until answered; do not auto-dismiss on transient flag changes.
+    if (showFlagQna) {
       return;
     }
 
@@ -340,11 +461,14 @@ export default function HomeScreen({
     setFlagQnaStep('q1');
     setSelectedReturnDateLabel(null);
     setShowCustomDatePicker(false);
+    setShowTodayTimePicker(false);
+    setPendingTodayReturnDate(null);
   }, [
     isActive,
     isPremiumTab,
     isClaimsFeatureDisabled,
     locationIntegrity.flagLevel,
+    showFlagQna,
     setSelectedReturnDateLabel,
   ]);
 
@@ -378,7 +502,7 @@ export default function HomeScreen({
     },
   ];
 
-  const handleReturnDateSelect = (label: string, selectedDate?: Date) => {
+  const applyReturnFreeze = (label: string, freezeUntil: Date, freezeAtExactTime = false) => {
     const matchingOption = returnDateOptions.find((option) => {
       const optionLabel = option.dateLabel
         ? `${option.label} (${option.dateLabel})`
@@ -388,12 +512,37 @@ export default function HomeScreen({
 
     setSelectedReturnDateLabel(label);
     setOutOfTownSinceMs((currentValue) => currentValue ?? Date.now());
-    setOutOfTownUntilDate(selectedDate ?? (matchingOption ? new Date(matchingOption.date) : null));
+    setOutOfTownUntilDate(
+      freezeAtExactTime || matchingOption?.key === 'today' ? freezeUntil : endOfDay(freezeUntil),
+    );
     setIsClaimsFeatureDisabled(true);
     setMiniIsTracking(false);
     setMiniTrackedStartMs(null);
     void clearStoredRainDisruptionTimer(getRainDisruptionStorageKey(user?.id));
     setShowFlagQna(false);
+    setShowTodayTimePicker(false);
+    setPendingTodayReturnDate(null);
+  };
+
+  const handleReturnDateSelect = (label: string, selectedDate?: Date) => {
+    const matchingOption = returnDateOptions.find((option) => {
+      const optionLabel = option.dateLabel
+        ? `${option.label} (${option.dateLabel})`
+        : option.label;
+      return optionLabel === label;
+    });
+    const chosenDate = selectedDate ?? (matchingOption ? new Date(matchingOption.date) : null);
+    if (!chosenDate) {
+      return;
+    }
+
+    if (matchingOption?.key === 'today') {
+      setPendingTodayReturnDate(chosenDate);
+      setShowTodayTimePicker(true);
+      return;
+    }
+
+    applyReturnFreeze(label, chosenDate);
   };
 
   const handleCustomDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
@@ -405,6 +554,27 @@ export default function HomeScreen({
     const normalized = startOfDay(selectedDate);
     const label = formatDateOptionLabel(normalized);
     handleReturnDateSelect(label, normalized);
+  };
+
+  const handleTodayTimeChange = (event: DateTimePickerEvent, selectedTime?: Date) => {
+    setShowTodayTimePicker(false);
+    if (event.type === 'dismissed' || !selectedTime || !pendingTodayReturnDate) {
+      setPendingTodayReturnDate(null);
+      return;
+    }
+
+    const freezeUntil = new Date(pendingTodayReturnDate);
+    freezeUntil.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
+
+    if (freezeUntil.getTime() <= Date.now()) {
+      Alert.alert('Invalid return time', 'Please choose a time later than the current time.');
+      setPendingTodayReturnDate(pendingTodayReturnDate);
+      setShowTodayTimePicker(true);
+      return;
+    }
+
+    const todayLabel = `Today (${formatDateOptionLabel(pendingTodayReturnDate)}) at ${formatTimeLabel(freezeUntil)}`;
+    applyReturnFreeze(todayLabel, freezeUntil, true);
   };
 
   const handleImBack = useCallback(async () => {
@@ -859,15 +1029,12 @@ export default function HomeScreen({
                   </Text>
                 </View>
 
-                <Switch
+                <AnimatedAutoRenewSwitch
                   value={autoRenewEnabled}
-                  onValueChange={(value) => {
-                    void handleToggleAutoRenew(value);
+                  onValueChange={(nextValue) => {
+                    void handleToggleAutoRenew(nextValue);
                   }}
                   disabled={updatingAutoRenew}
-                  trackColor={{ false: '#304255', true: '#00E5A0' }}
-                  thumbColor={autoRenewEnabled ? '#0A0A0F' : '#E5E7EB'}
-                  ios_backgroundColor="#304255"
                 />
               </View>
             </View>
@@ -947,15 +1114,12 @@ export default function HomeScreen({
                   </Text>
                 </View>
 
-                <Switch
+                <AnimatedAutoRenewSwitch
                   value={false}
-                  onValueChange={(value) => {
-                    void handleToggleAutoRenew(value);
+                  onValueChange={(nextValue) => {
+                    void handleToggleAutoRenew(nextValue);
                   }}
                   disabled
-                  trackColor={{ false: '#304255', true: '#00E5A0' }}
-                  thumbColor="#E5E7EB"
-                  ios_backgroundColor="#304255"
                 />
               </View>
             </View>
@@ -1024,6 +1188,9 @@ export default function HomeScreen({
                         setOutOfTownUntilDate(null);
                         setSelectedReturnDateLabel(null);
                         setShowFlagQna(false);
+                        setShowTodayTimePicker(false);
+                        setPendingTodayReturnDate(null);
+                        onYellowFlagNoOutOfTown?.();
                       }}
                     >
                       <Text style={[styles.qnaOptionText, flagQnaAnswer === 'no' && styles.qnaOptionTextActive]}>No</Text>
@@ -1073,6 +1240,14 @@ export default function HomeScreen({
                 display="default"
                 minimumDate={baseDay}
                 onChange={handleCustomDateChange}
+              />
+            )}
+            {showTodayTimePicker && (
+              <DateTimePicker
+                value={new Date()}
+                mode="time"
+                display="default"
+                onChange={handleTodayTimeChange}
               />
             )}
           </BlurView>
@@ -1499,6 +1674,17 @@ const styles = StyleSheet.create({
     color: '#9FB8D3',
     fontSize: 12,
     lineHeight: 18,
+  },
+  autoRenewSwitchTrack: {
+    width: 52,
+    height: 32,
+    padding: 3,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+  },
+  autoRenewSwitchThumb: {
+    height: '100%',
+    aspectRatio: 1,
   },
 
   policyCard: {
