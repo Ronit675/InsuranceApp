@@ -1,55 +1,99 @@
 # QuickShield
 
-QuickShield is a monorepo prototype for a parametric insurance product aimed at gig-delivery riders. The current repository contains a working mobile app, a NestJS backend, and a Python ML microservice, but several rider-income and disruption flows are still backed by mock data.
+QuickShield is a multi-service prototype for parametric income protection aimed at gig-delivery riders. The repository contains a rider mobile app, a browser-based admin portal, a NestJS backend with Prisma/PostgreSQL, and a FastAPI ML service used during premium calculation.
 
-## Repository layout
+This root README is the final submission overview. Component-level setup and implementation notes are documented in:
 
-- `QuickShield/`: Expo Router mobile app
-- `Backend/`: NestJS API with Prisma/PostgreSQL
-- `ml-service/`: FastAPI risk-scoring service
+- [QuickShield/README.md](QuickShield/README.md)
+- [admin-portal/README.md](admin-portal/README.md)
+- [ml-service/README.md](ml-service/README.md)
+
+## Submission Summary
+
+The current codebase implements the core prototype layers:
+
+- `QuickShield/`: Expo Router rider app with onboarding, authentication, policy purchase, profile, settings, and disruption-tracking flows
+- `admin-portal/`: separate React + Vite operations console for dashboarding, claims review, fraud monitoring, payouts, zones, pricing risk, and settings
+- `Backend/`: NestJS API with Prisma as the single source of truth for rider, policy, claim, fraud, payout, and admin data
+- `ml-service/`: FastAPI model-serving service that predicts the risk components used by the backend premium engine
+- `docs/`: supporting integration notes, including admin portal architecture and backend ownership boundaries
 
 ## Architecture
 
 ```text
-Expo mobile app -> NestJS API -> PostgreSQL
-                       |
-                       -> FastAPI ML service
+Rider Mobile App (Expo)
+        |
+        | REST
+        v
+Backend API (NestJS + Prisma + PostgreSQL) <---- Admin Portal (React + Vite)
+        |
+        | internal service call
+        v
+ML Risk Service (FastAPI + scikit-learn)
 ```
 
-## Current implemented flow
+Key architectural decisions in the current repo:
 
-1. User signs in with Google or phone OTP.
-2. User selects platform and service zone.
-3. Backend stores a rider profile and computes coverage recommendations.
-4. Policy purchase calls the ML service for pricing inputs.
-5. The app can simulate rain-triggered claim credit using mock weather data.
+- Prisma schema ownership stays in `Backend/prisma/schema.prisma`
+- both frontend clients talk to NestJS, not directly to the database
+- the admin portal does not call the ML service directly; NestJS mediates that integration
+- the ML service can fail without crashing premium calculation because the backend falls back to static values
 
-## Important prototype limitations
+## What Is Implemented
 
-- Platform connection currently generates mock earnings and working shifts.
-- Weather and rain-disruption monitoring use mock forecast data.
-- The dedicated claims and trigger services are not fully implemented yet.
-- ML training uses synthetic data rather than production historical data.
+Based on the repository contents, the prototype currently includes:
 
-## Setup
+- rider authentication flows for Google sign-in and phone OTP
+- rider onboarding for platform and service-zone selection
+- premium recommendation and weekly policy purchase flow
+- rider policy history, profile, settings, and app-state monitoring surfaces
+- mock weather and rain-disruption tracking in the rider experience
+- backend modules for auth, profile, premium, policy, claims, triggers, ML integration, and admin operations
+- Prisma models for `User`, `RiderProfile`, `Policy`, `Claim`, `DisruptionEvent`, `Admin`, `FraudAlert`, `Payout`, and related audit entities
+- admin-facing endpoints and frontend pages for dashboard, claims, fraud alerts, payouts, zones, pricing risk, and settings
+- ML model training and inference for the three pricing components `F`, `Z`, and `A`
 
-### 1. Backend
+## Known Prototype Limitations
+
+This is still a prototype and some flows remain partially mocked or simplified:
+
+- platform earnings/import flows are not connected to live delivery-platform APIs
+- weather/disruption handling is still prototype-grade and includes mock data paths
+- ML training uses synthetic data rather than production insurance history
+- deployment and infra automation are not included in this repository
+- environment examples are not consistently checked in for every subproject, so some `.env` files must be created manually from the README requirements
+
+## Repository Map
+
+```text
+QuickShield/
+├── README.md
+├── Backend/         # NestJS API, Prisma schema, admin/rider business logic
+├── QuickShield/     # Expo Router mobile app
+├── admin-portal/    # React + Vite admin console
+├── ml-service/      # FastAPI ML scoring service
+└── docs/            # integration and design notes
+```
+
+## Recommended Local Startup Order
+
+### 1. Start the backend
 
 ```bash
 cd Backend
-cp .env.example .env
 npm install
+npx prisma generate
 npm run dev
 ```
 
-Required backend env vars:
+The backend expects environment variables such as:
 
 - `DATABASE_URL`
 - `JWT_SECRET`
 - `GOOGLE_WEB_CLIENT_ID`
 - `ML_SERVICE_URL`
 
-### 2. ML service
+### 2. Start the ML service
 
 ```bash
 cd ml-service
@@ -60,167 +104,82 @@ python train.py
 uvicorn main:app --reload --port 5001
 ```
 
-### 3. Mobile app
+### 3. Start the rider app
 
 ```bash
 cd QuickShield
-cp .env.example .env
 npm install
 npx expo start
 ```
 
-Required mobile env vars:
+Expected app configuration:
 
 - `EXPO_PUBLIC_API_URL`
 - `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID`
 
-## Verification
+### 4. Start the admin portal
 
-- Mobile lint: `cd QuickShield && npm run lint`
-- Backend typecheck: `cd Backend && npx tsc --noEmit`
-- ML syntax check: `cd ml-service && python3 -m py_compile main.py train.py`
-
-Week 1-2:
-
-- Define schema
-- Setup backend APIs
-- Mock trigger services
-
-Week 3-4:
-
-- Implement policy engine
-- Integrate APIs
-- Build claims system
-
-### Phase 1: Foundation
-
-Completed deliverables:
-
-- Product strategy and concept definition
-- Repository setup and documentation
-- Initial demo planning
-
-### Phase 2: Core Product
-
-Planned deliverables:
-
-- Registration and authentication
-- Earnings import and rider profile creation
-- Policy creation and premium calculation
-- Trigger detection services
-- Basic automated claims flow
-
-### Phase 3: Production Readiness
-
-Planned deliverables:
-
-- Fraud detection services
-- Instant payout workflows
-- Admin and rider dashboards
-- ML-assisted pricing refinement
-
-## Target Project Structure
-
-The structure below represents the intended implementation layout for the full product:
-
-```text
-quickshield/
-├── backend/
-│   ├── src/
-│   │   ├── auth/
-│   │   ├── profile/
-│   │   ├── policy/
-│   │   ├── triggers/
-│   │   ├── claims/
-│   │   └── prisma/
-│   │       └── schema.prisma
-├── mobile/
-│   ├── src/
-│   │   ├── screens/
-│   │   ├── services/
-│   │   └── components/
-├── docs/
-└── README.md
+```bash
+cd admin-portal
+npm install
+npm run dev
 ```
 
-## Success Metrics
+Expected admin configuration:
 
-### Rider App
+- `VITE_API_URL`
+- optional `VITE_API_TIMEOUT`
+- optional `VITE_SESSION_TIMEOUT_MINUTES`
+- optional `VITE_OTP_EXPIRY_MINUTES`
+- optional `VITE_ENABLE_ANALYTICS`
 
-- Weekly income protected
-- Number of disrupted hours covered
-- Active protection rate and daily cap
-- Timeline of rain, app outage, and closure events
+## Validation Commands
 
-### Admin Dashboard
+Useful checks from the current repo:
 
-- Loss ratio by zone
-- Trigger type distribution
-- Rider segment performance
-- Fraud and anomaly alerts
+```bash
+cd QuickShield && npm run lint
+cd admin-portal && npm run lint
+cd admin-portal && npm run type-check
+cd ml-service && python3 -m py_compile main.py train.py
+```
 
-## Adversarial Defense and Anti-Spoofing Strategy
+The backend currently exposes `npm run dev`, but no dedicated lint or test script is defined in `Backend/package.json`.
 
-### Threat Model
+## Backend Ownership and Data Model
 
-Some malicious riders may use GPS-spoofing tools to fake presence inside an affected zone during a disruption window. If the system trusts location data blindly, it could approve false payouts and weaken the sustainability of the pool.
+The backend is the system boundary for both user-facing clients.
 
-### Core Defense Principle
+- rider app -> NestJS only
+- admin portal -> NestJS only
+- NestJS -> Prisma/PostgreSQL
+- NestJS -> ML service
 
-No payout decision should rely on a single signal. QuickShield should validate claims using multiple independent signals across location, activity, device behavior, and service-zone consistency.
+This separation matters because it keeps:
 
-### Validation Layers
+- RBAC and admin authorization inside NestJS
+- database writes centralized in one service
+- ML internals hidden from browser clients
+- pricing and claims logic anchored to a single backend contract
 
-- GPS validation: Confirm the rider device was present inside the impacted micro-zone during the disruption window.
-- Platform activity correlation: Match pickup, drop, or order-assignment logs against the same zone and time range.
-- Operating-area consistency: Compare the impacted zone against the rider's registered service area and historical working zone.
-- Behavioral consistency: Detect impossible jumps, static spoof patterns, or unrealistic speeds.
-- Device and network checks: Review location drift, sensor consistency, and abrupt cross-zone changes that suggest manipulation.
+## Admin Portal Positioning
 
-### Advanced Differentiation Logic
+The admin portal is intentionally separated from the Expo rider app.
 
-QuickShield differentiates between genuine riders and spoofers using behavioral and contextual validation.
+- the rider app is mobile-first and customer-facing
+- the admin portal is desktop-oriented and operational
+- admin workflows need longer sessions, denser tables, review actions, and internal controls
 
-- Movement consistency: Real riders show continuous movement across delivery routes, while spoofers often show static positions or unrealistic jumps.
-- Order activity correlation: Genuine riders usually have matching pickup or drop activity during the disruption window. Missing or contradictory activity increases fraud risk.
+This split is reflected in both the codebase and the documentation under [docs/admin-portal-integration.md](docs/admin-portal-integration.md).
 
-### Multi-Signal Data Validation
+## Component References
 
-Beyond GPS, the system should analyze:
+Use the subproject READMEs for implementation detail:
 
-- Platform order logs (pickup/drop timestamps)
-- Historical rider activity patterns
-- Device-level signals (speed, location drift)
-- Network consistency (sudden jumps across distant zones)
+- [QuickShield/README.md](QuickShield/README.md): mobile app prerequisites, scripts, and current rider scope
+- [admin-portal/README.md](admin-portal/README.md): admin portal runtime, purpose, and backend contract
+- [ml-service/README.md](ml-service/README.md): ML setup, training, endpoints, and prediction schema
 
-This multi-signal approach reduces reliance on spoofable GPS data.
+## Final Notes
 
-### Fair UX for Flagged Claims
-
-To avoid penalizing honest riders, the review flow should remain user-safe and explainable.
-
-- Soft flagging: Suspicious claims are held for review instead of being rejected immediately.
-- Manual review: Flagged cases are checked using additional evidence and rule-based audit trails.
-- User transparency: Riders are informed that the claim is under verification because of unusual activity.
-- Retry mechanism: Riders can revalidate by sharing additional supporting data or activity evidence.
-
-### Decision Outcomes
-
-- Approve automatically when signals are consistent across zone, time, and rider activity.
-- Hold for review when one or more signals conflict but fraud is not yet certain.
-- Reject when evidence strongly indicates spoofing, impossible movement, or zone mismatch.
-
-## Why This Product Matters
-
-Gig workers face income volatility from events they cannot control. Traditional insurance models are poorly aligned with short-term, hourly income interruptions. QuickShield addresses that gap with a product that is:
-
-- Fast to activate
-- Easy to price weekly
-- Automated in claims handling
-- Grounded in verifiable external data
-
-The long-term goal is to create a reliable financial safety net for high-frequency, low-margin workers who are currently underserved by mainstream insurance products.
-
-## One-Line Summary
-
-AI-powered parametric insurance that automatically compensates gig workers for hourly income loss using real-time disruption triggers.
+QuickShield is best understood as a working end-to-end prototype rather than a production-ready insurance platform. The repository demonstrates the intended product architecture, core user/admin flows, and ML-assisted pricing path, while still leaving live integrations, real trigger pipelines, and production hardening for future work.
