@@ -18,6 +18,7 @@ import { useLanguage } from '../directory/Languagecontext';
 import {
   useLocationIntegrityMonitor,
   type LocationIntegrityState,
+  type LocationIntegrityReason,
 } from '../hooks/useLocationIntegrityMonitor';
 import {
   fetchPersistedAppState,
@@ -227,7 +228,7 @@ export default function MainTabsScreen() {
       flagLevel: 'yellow' as const,
       reasons: sharedLocationIntegrity.reasons.length > 0
         ? sharedLocationIntegrity.reasons
-        : ['outside_working_area'],
+        : (['outside_working_area'] as unknown as LocationIntegrityReason[]),
       statusText: 'Action required: please answer the out-of-town questions.',
     }
     : sharedLocationIntegrity;
@@ -255,7 +256,7 @@ export default function MainTabsScreen() {
     setIsClaimsFeatureDisabled(true);
     setOutOfTownSinceMs((current) => current ?? locationIntegrity.lastSuspiciousDetectedAt);
     setOutOfTownUntilDate((current) => {
-      const suspiciousHoldUntil = new Date(locationIntegrity.suspiciousHoldUntilMs);
+      const suspiciousHoldUntil = new Date(locationIntegrity.suspiciousHoldUntilMs!);
       if (!current || current.getTime() < suspiciousHoldUntil.getTime()) {
         return suspiciousHoldUntil;
       }
@@ -275,7 +276,7 @@ export default function MainTabsScreen() {
     setIsClaimsFeatureDisabled(true);
     setOutOfTownSinceMs((current) => current ?? locationIntegrity.lastInvigilatingDetectedAt);
     setOutOfTownUntilDate((current) => {
-      const invigilatingHoldUntil = new Date(locationIntegrity.invigilatingHoldUntilMs);
+      const invigilatingHoldUntil = new Date(locationIntegrity.invigilatingHoldUntilMs!);
       if (!current || current.getTime() < invigilatingHoldUntil.getTime()) {
         return invigilatingHoldUntil;
       }
@@ -295,7 +296,7 @@ export default function MainTabsScreen() {
     setIsClaimsFeatureDisabled(true);
     setOutOfTownSinceMs((current) => current ?? locationIntegrity.lastAccountSuspendedAt);
     setOutOfTownUntilDate((current) => {
-      const suspendedUntil = new Date(locationIntegrity.accountSuspendedUntilMs);
+      const suspendedUntil = new Date(locationIntegrity.accountSuspendedUntilMs!);
       if (!current || current.getTime() < suspendedUntil.getTime()) {
         return suspendedUntil;
       }

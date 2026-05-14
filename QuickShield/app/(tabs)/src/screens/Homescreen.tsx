@@ -1034,9 +1034,7 @@ export default function HomeScreen({
               </View>
 
               <Text style={styles.walletBalance}>{formatCurrency(totalPaidOut)}</Text>
-              <Text style={styles.walletCaption}>
-                Paid claims from your current protection cycle appear here and can be redeemed once available.
-              </Text>
+              <Text style={styles.walletCaption}>{t('home.walletCaption')}</Text>
 
               <View style={styles.walletFooter}>
                 <View style={styles.walletMetaBlock}>

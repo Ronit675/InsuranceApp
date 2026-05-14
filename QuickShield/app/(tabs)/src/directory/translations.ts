@@ -35,6 +35,7 @@ export const translations = {
       notAffectingRider: 'Rain disruption is not affecting the rider at this moment',
       assignWorkingHours: 'First assign rider working hours so the app can compare rain with active shift',
       outsideWorkingSlot: 'Rider is outside configured working slot, so rain disruption is not being tracked',
+      outsideWorkingSlotShort: 'Outside the rider working slot',
       rainTooLow: 'Rain rate is below {{threshold}} mm/hr, so timer has not started',
       rainCrossedNoPlan: 'Rain rate crossed {{threshold}} mm/hr, but no active premium plan is available for payout',
       syncingClaim: '{{amount}} is being synced at {{hours}} full disrupted hour{{plural}} at {{perHour}} per hour',
@@ -159,6 +160,7 @@ export const translations = {
       openPremiumA11y: 'Open premium tab for disruption details',
       checking: 'Checking...',
       noActiveDisruption: 'No active disruption',
+      walletCaption: 'Paid claims from your current protection cycle appear here and can be redeemed once available.'
     },
     weathercard: {
       loadingText: 'Loading mock heavy-rain weather...',
@@ -193,6 +195,7 @@ export const translations = {
       notAffectingRider: 'बारिश की व्यवधान इस समय राइडर को प्रभावित नहीं कर रही है',
       assignWorkingHours: 'पहले राइडर के कार्य समय को असाइन करें ताकि ऐप बारिश की तुलना सक्रिय शिफ्ट के साथ कर सके',
       outsideWorkingSlot: 'राइडर कॉन्फ़िगर किए गए कार्य स्लॉट के बाहर है, इसलिए बारिश की व्यवधान ट्रैक नहीं की जा रही है',
+      outsideWorkingSlotShort: 'राइडर कार्य स्लॉट के बाहर',
       rainTooLow: 'बारिश की दर {{threshold}} मिमी/घंटा से कम है, इसलिए टाइमर शुरू नहीं हुआ है',
       rainCrossedNoPlan: 'बारिश की दर {{threshold}} मिमी/घंटा को पार कर गई, लेकिन पेआउट के लिए कोई सक्रिय प्रीमियम प्लान उपलब्ध नहीं है',
       syncingClaim: '{{amount}} को {{hours}} पूर्ण व्यवधान घंटे{{plural}} में {{perHour}} प्रति घंटा पर सिंक किया जा रहा है',
@@ -317,6 +320,8 @@ export const translations = {
       openPremiumA11y: 'डिसरप्शन विवरण के लिए प्रीमियम टैब खोलें',
       checking: 'जांच हो रही है...',
       noActiveDisruption: 'कोई सक्रिय डिसरप्शन नहीं',
+      walletCaption: 'आपके वर्तमान सुरक्षा चक्र से भुगतान किए गए दावे यहां दिखाई देंगे और उपलब्ध होने पर रिडीम किए जा सकते हैं।',
+
     },
     weathercard: {
       loadingText: 'मॉक भारी बारिश का मौसम लोड हो रहा है...',
@@ -350,7 +355,8 @@ export const translations = {
       syncFailed: 'ಛಾಯೆಯ ಮಳೆ ಪೇಔಟ್ ಅನ್ನು ಸಿಂಕ್ ಮಾಡಲು ಆಗಲಿಲ್ಲ.',
       notAffectingRider: 'ಮಳೆ ವಿಘಟನೆ ಈ ಕ್ಷಣ ರೈಡರ್‌ಗೆ ಪರಿಣಾಮ ಬಿಡುತ್ತಿಲ್ಲ.',
       assignWorkingHours: 'ಮೊದಲು ರೈಡರ್ ಕಾರ್ಯ ಸಮಯವನ್ನು ನಿಯೋಜಿಸಿ ಇದರಿಂದ ಆಪ್ ಮಳೆಯನ್ನು ಸಕ್ರಿಯ ಶಿಫ್ಟ್‌ನೊಂದಿಗೆ ಹೋಲಿಸಬಹುದು.',
-      outsideWorkingSlot: 'ರೈಡರ್ ಈ ಕ್ಷಣ ಸಂರೂಪಿತ ಕಾರ್ಯ ಸ್ಲಾಟ್‌ನ ಹೊರಗಿದೆ, ಆದ್ದರಿಂದ ಮಳೆ ವಿಘಟನೆ ಟ್ರ್ಯಾಕ್ ಆಗುತ್ತಿಲ್ಲ.',
+      outsideWorkingSlot: 'ರೈಡರ್ ಈ ಕ್ಷಣ ಸಂರೂಪಿತ ಕಾರ್ಯ ಸ್ಲಾಟ್‌ನ ಹೊರಗಿದೆ, ಆದ್ದರಿಂದ ಮಳೆಯ ವಿಘಟನೆ ಟ್ರ್ಯಾಕ್ ಆಗುತ್ತಿಲ್ಲ.',
+      outsideWorkingSlotShort: 'ರೈಡರ್ ಕಾರ್ಯ ಸ್ಲಾಟ್‌ನ ಹೊರಗೆ',
       rainTooLow: 'ಮಳೆ ದರ {{threshold}} ಮಿಮೀ/ಗಂ ಗಿಂತ ಕಡಿಮೆ, ಆದ್ದರಿಂದ ಟೈಮರ್ ಪ್ರಾರಂಭವಾಗಿಲ್ಲ.',
       rainCrossedNoPlan: 'ಮಳೆ ದರ {{threshold}} ಮಿಮೀ/ಗಂ ದೇಶಸೀಮೆ ಮೀರಿದೆ, ಆದರೆ ಪೇಔಟ್‌ಗಾಗಿ ಸಕ್ರಿಯ ಪ್ರೀಮಿಯಂ ಯೋಜನೆ ಯಾವುದೂ ಚೇತರಿಸಿಕೊಳ್ಳಲಾಗಿಲ್ಲ.',
       syncingClaim: '{{amount}} ಅನ್ನು {{hours}} ಪೂರ್ಣವಾದ ವಿಘ್ನಗ್ರಸ್ತ ಗಂ{{plural}} ನಲ್ಲಿ {{perHour}} ಪ್ರತಿ ಗಂಟೆಗೆ ಸಿಂಕ್ ಮಾಡಲಾಗುತ್ತಿದೆ.',
@@ -475,6 +481,7 @@ export const translations = {
       openPremiumA11y: 'ವಿಘಟನೆ ವಿವರಗಳಿಗೆ ಪ್ರೀಮಿಯಂ ಟ್ಯಾಬ್ ತೆರೆಯಿರಿ',
       checking: 'ಪರಿಶೀಲಿಸಲಾಗುತ್ತಿದೆ...',
       noActiveDisruption: 'ಸಕ್ರಿಯ ವಿಘಟನೆ ಇಲ್ಲ',
+      walletCaption: 'ನಿಮ್ಮ ಪ್ರಸ್ತುತ ರಕ್ಷಣೆ ಸೈಕ್ಲ್‌ನಿಂದ ಪಾವತಿಸಲಾದ ದಾವೆಗಳು ಇಲ್ಲಿಗೆ ತೋರಿಸಲಾಗುತ್ತದೆ ಮತ್ತು ಲಭ್ಯವಾದಾಗ ರಿಡೀಮ್ ಮಾಡಬಹುದು.',
     },
     weathercard: {
       loadingText: 'ಮಾಕ್ ಭೀಕರ ಮಳೆಯ ಮೆಲುವಾದನ್ನು ಲೋಡ್ ಮಾಡಲಾಗುತ್ತಿದೆ...',
