@@ -57,6 +57,17 @@ export class PolicyService {
     });
   }
 
+  async hasActivePolicy(userId: string) {
+    await this.expireCompletedPolicies(userId);
+
+    const activePolicy = await this.prisma.policy.findFirst({
+      where: { userId, status: 'active' },
+      select: { id: true },
+    });
+
+    return Boolean(activePolicy);
+  }
+
   async getPolicyHistory(userId: string) {
     await this.expireCompletedPolicies(userId);
 

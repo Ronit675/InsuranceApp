@@ -231,6 +231,26 @@ export default function PlatformConnectScreen() {
         return;
       }
 
+      if (activePolicy?.status === 'active') {
+        Alert.alert(
+          'Remove active premium first',
+          'You must cancel the active premium calculation from the premium section before disconnecting this platform.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Go to premium',
+              onPress: () => {
+                router.replace({
+                  pathname: '/home',
+                  params: { tab: 'premium' },
+                });
+              },
+            },
+          ],
+        );
+        return;
+      }
+
       setDisconnectingPlatform(true);
       const payload = await disconnectSelectedPlatform();
       setIsShiftExpanded(false);
@@ -348,8 +368,8 @@ export default function PlatformConnectScreen() {
               {disconnectingPlatform ? (
                 <ActivityIndicator color="#FCA5A5" />
               ) : (
-            <Text style={styles.disconnectBtnText}>Disconnect platform</Text>
-          )}
+                <Text style={styles.disconnectBtnText}>Disconnect platform</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
