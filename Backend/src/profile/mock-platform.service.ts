@@ -166,6 +166,13 @@ export class ProfileService {
       throw new BadRequestException('No platform profile found');
     }
 
+    const hasActivePolicy = await this.policyService.hasActivePolicy(userId);
+    if (hasActivePolicy) {
+      throw new BadRequestException(
+        'Remove the active premium calculation before disconnecting the platform',
+      );
+    }
+
     const updatedUser = await this.prisma.user.update({
       where: { id: userId },
       data: {

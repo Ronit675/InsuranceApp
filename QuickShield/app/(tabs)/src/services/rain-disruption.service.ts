@@ -2,6 +2,38 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { AuthUser } from './auth.service';
 import { fetchCurrentWeatherSnapshot } from './weather';
+import { translations, DEFAULT_LANGUAGE, type LanguageCode } from '../directory/translations';
+
+const LANGUAGE_STORAGE_KEY = 'quickshield.app.language';
+
+const tAsync = async (path: string, vars?: Record<string, string>) => {
+  const stored = await AsyncStorage.getItem(LANGUAGE_STORAGE_KEY);
+  const language = (stored === 'en' || stored === 'hi' || stored === 'kn') ? (stored as LanguageCode) : DEFAULT_LANGUAGE;
+
+  const keys = path.split('.');
+  let value: unknown = translations[language];
+
+  for (const key of keys) {
+    if (typeof value !== 'object' || value === null) {
+      value = undefined;
+      break;
+    }
+
+    value = (value as Record<string, unknown>)[key];
+  }
+
+  if (typeof value !== 'string') {
+    return path;
+  }
+
+  if (!vars) {
+    return value;
+  }
+
+  return Object.entries(vars).reduce((acc, [varKey, varValue]) => {
+    return acc.replace(new RegExp(`{{\\s*${varKey}\\s*}}`, 'g'), varValue);
+  }, value as string);
+};
 
 export type WorkingWindow = {
   label: string;
@@ -136,7 +168,7 @@ export const getRainDisruptionTrackingState = async (
       isWithinWorkingWindow: false,
       isTracking: false,
       rainfallRateMmPerHr: null,
-      weatherSummary: 'Outside the rider working slot',
+      weatherSummary: await tAsync('raindisruption.outsideWorkingSlotShort'),
       trackedStartMs: null,
       trackedClaimSessionKey: null,
       trackedWindowKey: null,

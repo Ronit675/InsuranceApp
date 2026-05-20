@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -18,6 +19,7 @@ import { useLanguage } from '../directory/Languagecontext';
 import {
   useLocationIntegrityMonitor,
   type LocationIntegrityState,
+  type LocationIntegrityReason,
 } from '../hooks/useLocationIntegrityMonitor';
 import {
   fetchPersistedAppState,
@@ -35,9 +37,13 @@ type TabDefinition = {
   icon: keyof typeof Ionicons.glyphMap;
 };
 
+const isTabKey = (value: unknown): value is TabKey =>
+  value === 'home' || value === 'flags' || value === 'premium' || value === 'history';
+
 export default function MainTabsScreen() {
   const { user } = useAuth();
   const { t } = useLanguage();
+  const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [activeTab, setActiveTab] = useState<TabKey>('home');
@@ -54,6 +60,7 @@ export default function MainTabsScreen() {
     useState<Partial<LocationIntegrityState> | null>(null);
   const [isAppStateReady, setIsAppStateReady] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
+  const handledTabParam = useRef<string | null>(null);
   const locationIntegrity = useLocationIntegrityMonitor({
     enabled: isAppStateReady,
     pollIntervalMs: 60_000,
@@ -73,6 +80,15 @@ export default function MainTabsScreen() {
     { key: 'history', label: t('tabs.history'), icon: 'time' },
   ];
   const activeIndex = TABS.findIndex((tab) => tab.key === activeTab);
+
+  useEffect(() => {
+    const requestedTab = Array.isArray(params.tab) ? params.tab[0] : params.tab;
+
+    if (isTabKey(requestedTab) && handledTabParam.current !== requestedTab) {
+      handledTabParam.current = requestedTab;
+      setActiveTab(requestedTab);
+    }
+  }, [params.tab]);
 
   useEffect(() => {
     Animated.timing(progress, {
@@ -227,7 +243,7 @@ export default function MainTabsScreen() {
       flagLevel: 'yellow' as const,
       reasons: sharedLocationIntegrity.reasons.length > 0
         ? sharedLocationIntegrity.reasons
-        : ['outside_working_area'],
+        : (['outside_working_area'] as unknown as LocationIntegrityReason[]),
       statusText: 'Action required: please answer the out-of-town questions.',
     }
     : sharedLocationIntegrity;
@@ -255,7 +271,7 @@ export default function MainTabsScreen() {
     setIsClaimsFeatureDisabled(true);
     setOutOfTownSinceMs((current) => current ?? locationIntegrity.lastSuspiciousDetectedAt);
     setOutOfTownUntilDate((current) => {
-      const suspiciousHoldUntil = new Date(locationIntegrity.suspiciousHoldUntilMs);
+      const suspiciousHoldUntil = new Date(locationIntegrity.suspiciousHoldUntilMs!);
       if (!current || current.getTime() < suspiciousHoldUntil.getTime()) {
         return suspiciousHoldUntil;
       }
@@ -275,7 +291,7 @@ export default function MainTabsScreen() {
     setIsClaimsFeatureDisabled(true);
     setOutOfTownSinceMs((current) => current ?? locationIntegrity.lastInvigilatingDetectedAt);
     setOutOfTownUntilDate((current) => {
-      const invigilatingHoldUntil = new Date(locationIntegrity.invigilatingHoldUntilMs);
+      const invigilatingHoldUntil = new Date(locationIntegrity.invigilatingHoldUntilMs!);
       if (!current || current.getTime() < invigilatingHoldUntil.getTime()) {
         return invigilatingHoldUntil;
       }
@@ -295,7 +311,7 @@ export default function MainTabsScreen() {
     setIsClaimsFeatureDisabled(true);
     setOutOfTownSinceMs((current) => current ?? locationIntegrity.lastAccountSuspendedAt);
     setOutOfTownUntilDate((current) => {
-      const suspendedUntil = new Date(locationIntegrity.accountSuspendedUntilMs);
+      const suspendedUntil = new Date(locationIntegrity.accountSuspendedUntilMs!);
       if (!current || current.getTime() < suspendedUntil.getTime()) {
         return suspendedUntil;
       }
